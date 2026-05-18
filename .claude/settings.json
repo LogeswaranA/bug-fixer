@@ -3,7 +3,8 @@
   "permissions": {
     "allow": [
       "mcp__jira__*",
-      "mcp__gortex__*"
+      "mcp__gortex__*",
+      "mcp__gitnexus__*"
     ]
   },
   "hooks": {
@@ -12,8 +13,8 @@
         "hooks": [
           {
             "type": "prompt",
-            "prompt": "You receive session context as JSON. Check whether the '/morpheus-fix-my-bug' skill was actually invoked and executed in this session (not just discussed or mentioned). If it was NOT invoked, respond ONLY with {\"decision\": \"allow\"} — no explanation, no other text.\n\nOnly if '/morpheus-fix-my-bug' was genuinely invoked, verify ALL of the following steps were completed:\n1. Bug was reproduced (smallest failing case exists)\n2. Skill(superpowers-systematic-debugging) was invoked\n3. Skill(superpowers-test-driven-development) was invoked and a failing test was written\n4. The fix was applied and the test now passes\n5. detect_changes was called\n6. get_test_targets was called\n7. check_guards was called\n8. analyze kind=dead_code was called\n9. contracts action=check was called\n10. Skill(superpowers-verification-before-completion) was invoked\n11. Skill(superpowers-requesting-code-review) was invoked\n12. feedback action=record was called\n\nIf all steps are complete, respond ONLY with {\"decision\": \"allow\"}.\nIf any step is missing, respond ONLY with {\"decision\": \"block\", \"reason\": \"Missing required step: <step name>\"}.\nRespond with JSON only — no explanation, no other text.",
-            "timeout": 30
+            "prompt": "You receive session context as JSON. Check whether the '/morpheus-fix-bug-using-gitnexus' skill was actually invoked and executed in this session (not just discussed or mentioned). If it was NOT invoked, respond ONLY with {\"decision\": \"allow\"} — no explanation, no other text.\n\nOnly if '/morpheus-fix-bug-using-gitnexus' was genuinely invoked, verify ALL of the following steps were completed:\n1. Bug was reproduced (smallest failing case exists)\n2. Skill(superpowers-systematic-debugging) was invoked\n3. Skill(superpowers-test-driven-development) was invoked and a failing test was written\n4. The fix was applied and the test now passes\n5. gitnexus_detect_changes was called\n6. gitnexus_impact with direction upstream was called\n7. gitnexus_impact with direction downstream was called\n8. gitnexus_api_impact was called OR explicitly skipped because no routes changed\n9. gitnexus_group_contracts was called OR explicitly skipped because repo is not multi-repo\n10. Skill(superpowers-verification-before-completion) was invoked\n11. Skill(superpowers-requesting-code-review) was invoked\n\nIf all steps are complete, respond ONLY with {\"decision\": \"allow\"}.\nIf any step is missing, respond ONLY with {\"decision\": \"block\", \"reason\": \"Missing required step: <step name>\"}.\nRespond with JSON only — no explanation, no other text.",
+            "timeout": 60
           }
         ]
       }

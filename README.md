@@ -112,5 +112,3 @@ Do not use `--bare` — it skips skill and hook loading.
 | GStack skill not found | Install GStack globally and confirm with `/skills` |
 
 
-export JIRA_USERNAME="c-laudhikesavan@neogov.net"
-export JIRA_API_TOKEN="ATATT3xFfGF0LCgk7NBEIjR6XmBeLt2FAP3UHoNMFRzzqr9BL7agTqixTuxvzoH6S3wfDAbuzoU9wf8EkvstXKKhKOUJVk6JmgHL1IgGGm_Opr7HzUDvthq4nR2XkpVPQ2RrYS7wuJGeuo5hngGCq1_VV7PRm_4ko_lNzwj8xw_IWLVklDsUxp0=46B5FE9A"
