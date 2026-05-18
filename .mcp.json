@@ -1,12 +1,5 @@
 {
   "mcpServers": {
-    "gortex": {
-      "command": "gortex",
-      "args": ["mcp", "--index", ".", "--watch"],
-      "env": {
-        "GORTEX_LOG": "info"
-      }
-    },
     "jira": {
       "command": "uvx",
       "args": [
