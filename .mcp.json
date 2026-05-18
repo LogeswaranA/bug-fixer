@@ -1,5 +1,9 @@
 {
   "mcpServers": {
+    "gitnexus": {
+      "command": "npx",
+      "args": ["-y", "gitnexus@latest", "mcp"]
+    },
     "jira": {
       "command": "uvx",
       "args": [

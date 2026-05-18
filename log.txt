@@ -1,0 +1,436 @@
+/morpheus-fix-bug-using-gitnexus "I am unable to click submit button in the frontend"                                                          
+
+⏺ Starting the morpheus bug-fix workflow for: "I am unable to click submit button in the frontend"
+
+  Step 0 — Pre-flight: verify .mcp.json has a gitnexus entry
+
+⏺ Bash(cat /Users/logeswaran/projects/AIProjects/crawlio/.mcp.json 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); print('ok'
+      if 'gitnexus' in d.get…)
+  ⎿  ok
+
+⏺ GitNexus is configured. Proceeding to Step 1 — orient with gitnexus_list_repos.
+
+⏺ Step 1 — Orient: verify the index
+
+  Called gitnexus (ctrl+o to expand)
+
+⏺ Index confirmed — crawlio has 391 nodes, 480 edges, 6 execution flows.
+
+  Step 2 — Assemble context with gitnexus_query
+
+  Called gitnexus (ctrl+o to expand)
+
+⏺ The Home function in frontend/pages/index.js spans lines 3–298 — that's the entire frontend. Let me get the 360-degree view on it.
+
+  Called gitnexus (ctrl+o to expand)
+
+⏺ I can see the issue already — the Home component uses useState but the content starts with only import Head from 'next/head'. Let me read the
+  actual file to confirm the missing React import.
+
+  Read 1 file (ctrl+o to expand)
+
+⏺ React import is fine. Let me read the full button and form area.
+
+  Read 1 file (ctrl+o to expand)
+
+⏺ Root cause found at line 83:
+
+  <form onSubmit={} className="space-y-6">
+
+  The onSubmit handler is empty — handleCrawl is defined but never wired to the form. That's why clicking the submit button does nothing.
+
+  Now running the mandatory pre-edit impact analysis.
+
+  Called gitnexus 2 times (ctrl+o to expand)
+
+⏺ Impact is LOW — handleCrawl has zero callers because the onSubmit is empty. Fix is fully contained to line 83. Now invoking the mandatory
+  Superpowers skills.
+
+⏺ Skill(superpowers-systematic-debugging)
+  ⎿  Successfully loaded skill
+
+⏺ Systematic Debugging — Applying All Four Phases
+
+  Phase 1: Root Cause Investigation ✓
+
+  Evidence gathered:
+
+  ┌────────────────────────────────┬────────────────────────────────────────────────────────────────────────────────────┐
+  │            Evidence            │                                      Finding                                       │
+  ├────────────────────────────────┼────────────────────────────────────────────────────────────────────────────────────┤
+  │ Line 83, index.js              │ <form onSubmit={} ...> — empty JSX expression passes undefined as the handler      │
+  ├────────────────────────────────┼────────────────────────────────────────────────────────────────────────────────────┤
+  │ Line 17–54                     │ handleCrawl IS defined correctly — validates URL, calls API, manages loading state │
+  ├────────────────────────────────┼────────────────────────────────────────────────────────────────────────────────────┤
+  │ GitNexus impact on handleCrawl │ 0 upstream callers — confirms it's never invoked anywhere                          │
+  ├────────────────────────────────┼────────────────────────────────────────────────────────────────────────────────────┤
+  │ Button at line 123–139         │ type="submit" + disabled={loading || !url} — correct, will fire form submit event  │
+  └────────────────────────────────┴────────────────────────────────────────────────────────────────────────────────────┘
+
+  Trace:
+  1. User types URL → url state is set → button becomes enabled (correct)
+  2. User clicks button → browser fires submit event on the <form> → form's onSubmit handler is undefined → nothing happens
+
+  Root cause confirmed: onSubmit={} at line 83 — handleCrawl was defined but never wired to the form.
+
+  Phase 2: Pattern Analysis ✓
+
+  handleOptionChange is correctly wired: onChange={() => handleOptionChange(key)}. The broken pattern is a single missing reference, not a
+  structural problem.
+
+  Phase 3: Hypothesis ✓
+
+  ▎ "The form onSubmit prop is empty ({}), which passes undefined as the event handler. Replacing it with {handleCrawl} will wire the defined 
+  ▎ handler and fix submission."
+
+  Single change, zero unknowns. Now invoking the TDD skill before touching the code.
+
+⏺ Skill(superpowers-test-driven-development)
+  ⎿  Successfully loaded skill
+
+⏺ Checking the existing test setup before writing the failing test.
+
+  Read 1 file (ctrl+o to expand)
+
+⏺ No test framework exists. I need to install Jest + React Testing Library, write the failing test, watch it fail, then apply the fix.
+
+  RED phase — install testing framework and write failing test first.
+
+⏺ Bash(cd /Users/logeswaran/projects/AIProjects/crawlio/frontend && npm install --save-dev jest jest-environment-jsdom @testing-library/react
+      @testing-library/jest-dom…)
+  ⎿  To address all issues (including breaking changes), run:
+       npm audit fix --force
+
+     Run `npm audit` for details.
+
+  Listed 1 directory (ctrl+o to expand)
+
+⏺ Jest installed. Now creating the Babel and Jest config for Next.js.
+
+⏺ Write(babel.config.js)
+  ⎿  Wrote 6 lines to babel.config.js
+      1 module.exports = { 
+      2   presets: [
+      3     ['@babel/preset-env', {targets: {node: 'current'}}],
+      4     ['@babel/preset-react', {runtime: 'automatic'}],
+      5   ],
+      6 };
+  
+⏺ Write(jest.config.js)
+  ⎿  Wrote 6 lines to jest.config.js
+      1 module.exports = {
+      2   testEnvironment: 'jsdom',
+      3   setupFilesAfterFramework: ['@testing-library/jest-dom'],
+      4   setupFilesAfterFramework: undefined,
+      5   setupFilesAfterFramework: undefined,
+      6 };
+
+⏺ Write(jest.config.js)
+  ⎿  Removed 2 lines
+      1  module.exports = {
+      2    testEnvironment: 'jsdom',
+      3    setupFilesAfterFramework: ['@testing-library/jest-dom'],
+      4 -  setupFilesAfterFramework: undefined,                                                                                           
+      5 -  setupFilesAfterFramework: undefined,                                                                                           
+      4  };
+
+⏺ Write(jest.config.js)
+  ⎿  Added 3 lines
+      1  module.exports = {
+      2    testEnvironment: 'jsdom',
+      3    setupFilesAfterFramework: ['@testing-library/jest-dom'],
+      4 +  moduleNameMapper: {                                                                                                            
+      5 +    '^next/head$': '<rootDir>/__mocks__/next/head.js',                                                                           
+      6 +  },                                                                                                                             
+      7  };
+
+⏺ Write(jest.config.js)
+  ⎿  Added 1 line
+      3    setupFilesAfterFramework: ['@testing-library/jest-dom'],
+      4    moduleNameMapper: {
+      5      '^next/head$': '<rootDir>/__mocks__/next/head.js',
+      6 +    '^next/router$': '<rootDir>/__mocks__/next/router.js',                                                                       
+      7    },
+      8  };
+
+⏺ Bash(mkdir -p /Users/logeswaran/projects/AIProjects/crawlio/frontend/__mocks__/next)
+  ⎿  Done
+
+⏺ Write(__mocks__/next/head.js)
+  ⎿  Wrote 3 lines to __mocks__/next/head.js
+      1 const Head = ({ children }) => children || null;
+      2 module.exports = Head;
+      3 module.exports.default = Head;
+
+⏺ Now write the failing regression test — testing that the form submit handler is actually invoked when the button is clicked.
+
+⏺ Bash(mkdir -p /Users/logeswaran/projects/AIProjects/crawlio/frontend/__tests__)
+  ⎿  Done
+
+⏺ Write(__tests__/Home.submit.test.js)
+  ⎿  Wrote 42 lines to __tests__/Home.submit.test.js
+       1 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+       2 import '@testing-library/jest-dom';
+       3 import userEvent from '@testing-library/user-event';
+       4 import Home from '../pages/index';
+       5 
+       6 // Stub fetch so the form submission doesn't make real network calls
+       7 beforeEach(() => {
+       8   global.fetch = jest.fn(() =>
+       9     Promise.resolve({
+      10       json: () => Promise.resolve({ success: true, data: {}, metadata: {} }),
+     … +32 lines (ctrl+o to expand)
+
+⏺ Verify RED — watch the test fail before touching production code.
+
+⏺ Bash(npx jest __tests__/Home.submit.test.js --no-coverage 2>&1)
+  ⎿  Error: Exit code 1
+     ● Validation Warning:
+     
+       Unknown option "setupFilesAfterFramework" with value ["@testing-library/jest-dom"] was found.
+       This is probably a typing mistake. Fixing it will remove this message.
+
+       Configuration Documentation:
+       https://jestjs.io/docs/configuration
+
+     ● Validation Warning:
+     … +126 lines (ctrl+o to expand)
+
+⏺ RED confirmed — and even more definitively than expected. The parser itself rejects onSubmit={} with SyntaxError: JSX attributes must only be 
+  assigned a non-empty expression. The bug causes a hard parse failure. The test fails for exactly the right reason.
+
+  GREEN phase — apply the single fix, then fix the jest config typo.
+
+⏺ Update(pages/index.js) 
+  ⎿  Added 1 line, removed 1 line
+      80            <div className="bg-white shadow-xl rounded-lg p-8 mb-8">
+      81              <h2 className="text-2xl font-semibold mb-6 text-gray-800">Web Crawler</h2>
+      82              
+      83 -            <form onSubmit={} className="space-y-6">                                                                            
+      83 +            <form onSubmit={handleCrawl} className="space-y-6">                                                                 
+      84                {/* URL Input */}
+      85                <div>
+      86                  <label htmlFor="url" className="block text-sm font-medium text-gray-700 mb-2">
+
+⏺ Write(jest.config.js)
+  ⎿  Added 1 line, removed 2 lines
+      1  module.exports = {
+      2    testEnvironment: 'jsdom',
+      3 -  setupFilesAfterFramework: ['@testing-library/jest-dom'],                                                                       
+      3 +  setupFilesAfterEnv: ['@testing-library/jest-dom'],                                                                             
+      4    moduleNameMapper: {
+      5      '^next/head$': '<rootDir>/__mocks__/next/head.js',
+      6 -    '^next/router$': '<rootDir>/__mocks__/next/router.js',                                                                       
+      6    },
+      7  };
+
+⏺ Verify GREEN — watch the test pass.
+
+⏺ Bash(npx jest __tests__/Home.submit.test.js --no-coverage 2>&1)
+  ⎿  PASS __tests__/Home.submit.test.js
+       ✓ submit button calls the crawl API when a URL is entered and form is submitted (142 ms)
+     … +5 lines (ctrl+o to expand)
+
+⏺ Test passes. Now running the post-fix GitNexus diagnostics.
+
+  Called gitnexus (ctrl+o to expand)
+
+⏺ Risk level: LOW — 0 changed symbols, 0 affected processes. Now checking upstream and downstream impact.
+
+  Called gitnexus 2 times (ctrl+o to expand)
+
+⏺ All clear — upstream and downstream both LOW, zero cascading impact. Now running the mandatory verification and review skills.
+
+⏺ Skill(superpowers-verification-before-completion)
+  ⎿  Successfully loaded skill
+
+⏺ Running fresh verification now — no claims until the output is in hand.
+
+  Gate function applied:
+
+  1. IDENTIFY — what proves this fix works?
+    - Fresh test run showing 1/1 pass
+    - Line 83 in source shows onSubmit={handleCrawl} (not empty)
+  2. RUN — fresh, complete execution:
+
+⏺ Bash(npx jest __tests__/Home.submit.test.js --no-coverage --verbose 2>&1)
+  ⎿  PASS __tests__/Home.submit.test.js
+       ✓ submit button calls the crawl API when a URL is entered and form is submitted (144 ms)
+     … +5 lines (ctrl+o to expand)
+
+  Searched for 1 pattern (ctrl+o to expand)
+
+⏺ 3. READ & VERIFY — output confirms the claim:
+    - Test: 1 passed, 1 total — exit 0
+    - Source line 83: onSubmit={handleCrawl} — fix is present
+
+  Evidence is in hand. Now invoking the final mandatory skill.
+
+⏺ Skill(superpowers-requesting-code-review)
+  ⎿  Successfully loaded skill
+
+⏺ Getting SHAs and dispatching the code reviewer.
+
+⏺ Bash(cd /Users/logeswaran/projects/AIProjects/crawlio && git log --oneline -5)
+  ⎿  c04e9b8 updated
+     e4a928d first commit
+
+⏺ Bash(git diff HEAD -- frontend/pages/index.js frontend/__tests__/ frontend/jest.config.js frontend/babel.config.js frontend/__mocks__/ 2>&1)
+  ⎿  (No output)
+
+⏺ Bash(git diff HEAD && git status)
+  ⎿  diff --git a/frontend/package-lock.json b/frontend/package-lock.json
+     index d78c262..f54dfb5 100644
+     --- a/frontend/package-lock.json
+     … +268 lines (ctrl+o to expand)
+
+⏺ Bash(git diff HEAD -- frontend/pages/index.js && git status --short | grep -v package-lock)
+  ⎿   M frontend/package.json
+     ?? .claude/
+     ?? .mcp.json
+     … +6 lines (ctrl+o to expand)
+
+⏺ Bash(git diff -- frontend/pages/index.js)
+  ⎿  (No output)
+
+⏺ Bash(git show HEAD:frontend/pages/index.js | grep -n "onSubmit" && echo "---" && grep -n "onSubmit"
+      /Users/logeswaran/projects/AIProjects/crawlio/frontend/pages/inde…)
+  ⎿  83:            <form onSubmit={handleCrawl} className="space-y-6">
+     ---
+     83:            <form onSubmit={handleCrawl} className="space-y-6">
+
+⏺ Bash(git status frontend/pages/index.js && git log --oneline -3 -- frontend/pages/index.js)
+  ⎿  On branch master
+     Your branch is up to date with 'origin/master'.
+     … +3 lines (ctrl+o to expand)
+
+⏺ The HEAD commit already had the correct onSubmit={handleCrawl} — the bug was an uncommitted working-tree modification (visible in the session's
+   opening M frontend/pages/index.js). My edit restored the working tree to match HEAD. The test infrastructure is the meaningful addition.
+
+  Dispatching the code reviewer to evaluate the test setup and the fix context.
+
+⏺ gsd-code-reviewer(Code review of the bug fix and test scaffolding)
+  ⎿  Bash(# Verify the next/head mock interop: index.js uses ESM default import
+         # but the mock uses CJS. Check if babel handles this, or if interop will break.…)
+     Running…
+     Bash(# Check what userEvent.type does with an empty initial url state
+         # The test types into the input then clicks. The button is disabled={loading || !url}…)
+     Running…
+     Bash(# Check if restoreAllMocks vs resetAllMocks is significant here
+         # jest.fn() mocks set with global assignment:…)
+     Running…
+     … +10 tool uses (ctrl+o to expand)
+     (ctrl+b to run in background)
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ Bash command
+
+   # Check if restoreAllMocks vs resetAllMocks is significant here
+   # jest.fn() mocks set with global assignment:
+   # - restoreAllMocks: restores spies created with jest.spyOn. Has NO effect on jest.fn() assigned directly.
+   # - resetAllMocks: resets mock state (calls, instances, results) but keeps the mock function
+   # - clearAllMocks: clears call history only
+   # The test assigns global.fetch = jest.fn(...) in beforeEach, so restoreAllMocks will NOT
+   # clean up global.fetch between tests. The beforeEach re-assigns it fresh each time though,
+   # so for a single test file this won't cause cross-contamination. But it could leak into
+   # other test files if Jest doesn't isolate modules.
+
+   # Check if there's a test script in package.json
+   python3 -c "
+   import json
+⏺ ConcoctingCheck what·userEv3nt.typesdoes with an empty initial url state
+     Done (16 tool uses · 27.1k tokens · 2m 12s)
+  (ctrl+o to expand)
+  ⎿  Found 1 new diagnostic issue in 1 file (ctrl+o to expand)
+
+⏺ The reviewer found valid issues. Fixing Critical + Important ones now.
+
+  Read 1 file (ctrl+o to expand)
+
+⏺ CR-01 — add the missing test script:
+
+⏺ Update(frontend/package.json)
+  ⎿  Added 3 lines, removed 1 line
+       6      "dev": "next dev",
+       7      "build": "next build",
+       8      "start": "next start",
+       9 -    "lint": "next lint"                                                                                                         
+       9 +    "lint": "next lint",                                                                                                        
+      10 +    "test": "jest",                                                                                                             
+      11 +    "test:watch": "jest --watch"                                                                                                
+      12    },
+      13    "dependencies": {
+      14      "@headlessui/react": "^1.7.17",
+
+⏺ WR-01 + WR-02 — fix teardown and remove dead fireEvent import. WR-03 — fix __esModule flag on the mock. All three in parallel:
+
+⏺ Update(frontend/__tests__/Home.submit.test.js)
+  ⎿  Added 1 line, removed 1 line
+      1 -import { render, screen, fireEvent, waitFor } from '@testing-library/react';                                                     
+      1 +import { render, screen, waitFor } from '@testing-library/react';                                                                
+      4  import Home from '../pages/index';
+
+⏺ Update(frontend/__tests__/Home.submit.test.js)
+  ⎿  Added 1 line
+      13  });
+      14  
+      15  afterEach(() => {
+      16 +  delete global.fetch;                                                                                                          
+      17    jest.restoreAllMocks();
+      18  });
+      19  
+
+⏺ Update(frontend/__mocks__/next/head.js)
+  ⎿  Added 1 line
+      1  const Head = ({ children }) => children || null;
+      2  module.exports = Head;
+      3 +module.exports.__esModule = true;                                                                                                
+      4  module.exports.default = Head;
+
+⏺ Also adding explicit transform to jest.config (IN-03 — makes the dep surface visible):
+
+⏺ Write(frontend/jest.config.js)
+  ⎿  Added 1 line
+      1  module.exports = {
+      2    testEnvironment: 'jsdom',
+      3 +  transform: { '^.+\\.[jt]sx?$': 'babel-jest' },                                                                                 
+      4    setupFilesAfterEnv: ['@testing-library/jest-dom'],
+      5    moduleNameMapper: {
+      6      '^next/head$': '<rootDir>/__mocks__/next/head.js',
+
+⏺ Fresh verification after all reviewer fixes:
+
+⏺ Bash(cd /Users/logeswaran/projects/AIProjects/crawlio/frontend && npm test -- --no-coverage --verbose 2>&1)
+  ⎿  > crawlio-frontend@1.0.0 test
+     > jest --no-coverage --verbose
+     … +8 lines (ctrl+o to expand)
+
+⏺ npm test works end-to-end. All reviewer findings addressed.
+
+  ---
+  Summary
+  
+  Root cause: frontend/pages/index.js line 83 had <form onSubmit={}> — an empty JSX expression that is both a parse error and a missing handler
+  reference. The handleCrawl function existed and was correct; it was simply never wired to the form.
+
+  Fix: One character change — onSubmit={} → onSubmit={handleCrawl}.
+
+  Test infrastructure added (all new — no pre-existing tests existed):
+  - jest.config.js, babel.config.js, __mocks__/next/head.js
+  - __tests__/Home.submit.test.js — regression test proving the API is called on submit
+  - package.json "test": "jest" script
+  
+  Reviewer findings resolved:
+  - CR-01: Added npm test script
+  - WR-01: Fixed teardown to delete global.fetch (not restoreAllMocks)
+  - WR-02: Removed unused fireEvent import
+  - WR-03: Added __esModule: true to the head mock
+  - IN-03: Made transform explicit in jest config
+
+  Deferred (pre-existing, out of scope): IN-02 — the component doesn't check response.ok before parsing JSON. Worth a follow-up ticket.
+
+⏺ Ran 1 stop hook (ctrl+o to expand)
+  ⎿  Stop hook error: Hook script appears to be missing — "python3 .claude/hooks/morpheus-stop-gate.py" exited 2 with:
+  /Users/logeswaran/.pyenv/versions/3.10.14/bin/python3: can't open file
+  '/Users/logeswaran/projects/AIProjects/crawlio/frontend/.claude/hooks/morpheus-stop-gate.py': [Errno 2] No such file or directory.
+  Treating as non-blocking instead of re-prompting. If this is a plugin hook, check the plugin install (run /plugin).

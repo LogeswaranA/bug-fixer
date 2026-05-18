@@ -2,9 +2,19 @@
   "enableAllProjectMcpServers": true,
   "permissions": {
     "allow": [
+      "mcp__gitnexus__*",
       "mcp__jira__*",
-      "mcp__gortex__*",
-      "mcp__gitnexus__*"
+      "Bash(git *)",
+      "Bash(npm *)",
+      "Bash(npx *)",
+      "Bash(dotnet *)",
+      "Bash(python3 *)",
+      "Bash(pytest *)",
+      "Bash(dotnet test*)",
+      "Bash(go test*)",
+      "Edit(*)",
+      "Write(*)",
+      "Read(*)"
     ]
   },
   "hooks": {
@@ -12,9 +22,9 @@
       {
         "hooks": [
           {
-            "type": "prompt",
-            "prompt": "You receive session context as JSON. Check whether the '/morpheus-fix-bug-using-gitnexus' skill was actually invoked and executed in this session (not just discussed or mentioned). If it was NOT invoked, respond ONLY with {\"decision\": \"allow\"} — no explanation, no other text.\n\nOnly if '/morpheus-fix-bug-using-gitnexus' was genuinely invoked, verify ALL of the following steps were completed:\n1. Bug was reproduced (smallest failing case exists)\n2. Skill(superpowers-systematic-debugging) was invoked\n3. Skill(superpowers-test-driven-development) was invoked and a failing test was written\n4. The fix was applied and the test now passes\n5. gitnexus_detect_changes was called\n6. gitnexus_impact with direction upstream was called\n7. gitnexus_impact with direction downstream was called\n8. gitnexus_api_impact was called OR explicitly skipped because no routes changed\n9. gitnexus_group_contracts was called OR explicitly skipped because repo is not multi-repo\n10. Skill(superpowers-verification-before-completion) was invoked\n11. Skill(superpowers-requesting-code-review) was invoked\n\nIf all steps are complete, respond ONLY with {\"decision\": \"allow\"}.\nIf any step is missing, respond ONLY with {\"decision\": \"block\", \"reason\": \"Missing required step: <step name>\"}.\nRespond with JSON only — no explanation, no other text.",
-            "timeout": 60
+            "type": "command",
+            "command": "python3 -c \"import subprocess,sys,os; r=subprocess.check_output(['git','rev-parse','--show-toplevel']).decode().strip(); exec(open(os.path.join(r,'.claude','hooks','morpheus-stop-gate.py')).read())\"",
+            "timeout": 30
           }
         ]
       }
