@@ -234,37 +234,142 @@ done
 echo ""
 echo "[orchestrator] All $TOTAL workers finished."
 
-# ── Open PRs for fixed bugs ───────────────────────────────────────────────────
+# ── Open PRs and create Jira tickets for fixed bugs ──────────────────────────
+#
+# GitHub: set GITHUB_TOKEN, OR run `gh auth login` once.
+# Jira:   set all four env vars to enable:
+#   JIRA_BASE_URL   e.g. https://yourorg.atlassian.net
+#   JIRA_EMAIL      your Atlassian account email
+#   JIRA_API_TOKEN  API token from id.atlassian.com/manage-profile/security/api-tokens
+#   JIRA_PROJECT    Jira project key e.g. KAN
+# If neither is configured, this section is skipped gracefully.
 
-echo "[orchestrator] Opening PRs..."
 python3 - "$RESULTS_FILE" "$REPO_ROOT" "$WORKTREES_DIR" <<'PYEOF'
-import json, subprocess, sys, os
-results = json.load(open(sys.argv[1]))
-repo_root, wt_dir = sys.argv[2], sys.argv[3]
+import json, subprocess, sys, os, re, urllib.request, urllib.error, base64
 
+results   = json.load(open(sys.argv[1]))
+repo_root = sys.argv[2]
+wt_dir    = sys.argv[3]
+
+def slug(bug):
+    return re.sub(r'-+$', '', re.sub(r'[^a-z0-9]+', '-', bug.lower()))
+
+# ── Detect active integrations ───────────────────────────────────────────────
+JIRA_BASE    = os.environ.get("JIRA_BASE_URL", "").rstrip("/")
+JIRA_EMAIL   = os.environ.get("JIRA_EMAIL", "")
+JIRA_TOKEN   = os.environ.get("JIRA_API_TOKEN", "")
+JIRA_PROJECT = os.environ.get("JIRA_PROJECT", "")
+jira_enabled = bool(JIRA_BASE and JIRA_EMAIL and JIRA_TOKEN and JIRA_PROJECT)
+
+github_enabled = False
+if os.environ.get("GITHUB_TOKEN"):
+    github_enabled = True  # gh CLI picks up GITHUB_TOKEN automatically
+else:
+    try:
+        github_enabled = subprocess.run(
+            ["gh", "auth", "status"], capture_output=True
+        ).returncode == 0
+    except FileNotFoundError:
+        pass  # gh not installed
+
+gh_sym   = "✓" if github_enabled else "✗  (set GITHUB_TOKEN or run `gh auth login`)"
+jira_sym = "✓" if jira_enabled   else "✗  (set JIRA_BASE_URL / JIRA_EMAIL / JIRA_API_TOKEN / JIRA_PROJECT)"
+print(f"[orchestrator] Integrations:  GitHub {gh_sym}   Jira {jira_sym}")
+
+if not github_enabled and not jira_enabled:
+    print("[orchestrator] No integrations active — skipping PR/ticket creation.")
+    sys.exit(0)
+
+# ── Jira helper ──────────────────────────────────────────────────────────────
+def jira_request(method, path, body=None):
+    creds   = base64.b64encode(f"{JIRA_EMAIL}:{JIRA_TOKEN}".encode()).decode()
+    headers = {"Authorization": f"Basic {creds}", "Content-Type": "application/json", "Accept": "application/json"}
+    data    = json.dumps(body).encode() if body else None
+    req     = urllib.request.Request(f"{JIRA_BASE}/rest/api/3{path}", data=data, headers=headers, method=method)
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        return json.loads(resp.read())
+
+def create_jira_ticket(bug, pr_url):
+    payload = {
+        "fields": {
+            "project":     {"key": JIRA_PROJECT},
+            "summary":     f"fix: {bug}",
+            "description": {
+                "type": "doc", "version": 1,
+                "content": [{"type": "paragraph", "content": [
+                    {"type": "text", "text": f"Fixed by morpheus-fix-bug-using-gitnexus.\n\nPR: {pr_url or '(none)'}"}
+                ]}]
+            },
+            "issuetype":   {"name": "Bug"},
+            "labels":      ["morpheus", "auto-fixed"],
+        }
+    }
+    result = jira_request("POST", "/issue", payload)
+    return result.get("key", "?"), f"{JIRA_BASE}/browse/{result.get('key','')}"
+
+# ── Process each fixed bug ───────────────────────────────────────────────────
 for r in results:
     if r["status"] != "fixed":
         continue
-    bug = r["bug"]
-    import re
-    safe = re.sub(r'-+$', '', re.sub(r'[^a-z0-9]+', '-', bug.lower()))
-    wt = os.path.join(wt_dir, safe)
-    try:
-        remote = subprocess.check_output(
-            ["gh", "repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"],
-            cwd=repo_root, stderr=subprocess.DEVNULL
-        ).decode().strip()
-        subprocess.run([
-            "gh", "pr", "create",
-            "--title", f"fix: {bug}",
-            "--body", f"Fixed by morpheus-fix-bug-using-gitnexus.\n\nSee `.worktrees/{safe}/.worker.log` for full session.",
-            "--base", "main",
-            "--head", f"fix/{safe}",
-            "--repo", remote,
-        ], cwd=wt, check=True, capture_output=True)
-        print(f"  PR opened: {bug}")
-    except Exception as e:
-        print(f"  PR skipped for '{bug}': {e}")
+    bug  = r["bug"]
+    safe = slug(bug)
+    wt   = os.path.join(wt_dir, safe)
+    pr_url = ""
+
+    # GitHub PR
+    if github_enabled:
+        try:
+            remote = subprocess.check_output(
+                ["gh", "repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"],
+                cwd=repo_root, stderr=subprocess.DEVNULL
+            ).decode().strip()
+
+            # Push branch to remote first — PR creation fails if branch isn't pushed
+            push_proc = subprocess.run(
+                ["git", "push", "-u", "origin", f"fix/{safe}"],
+                cwd=wt, capture_output=True, text=True
+            )
+            if push_proc.returncode != 0:
+                print(f"  Push failed for '{bug}': {push_proc.stderr.strip()}")
+                continue
+
+            jira_line = "\n\nJira: (ticket will be created)" if jira_enabled else ""
+            pr_proc = subprocess.run([
+                "gh", "pr", "create",
+                "--title", f"fix: {bug}",
+                "--body",  (
+                    f"Fixed by morpheus-fix-bug-using-gitnexus.\n\n"
+                    f"See `.worktrees/{safe}/.worker.log` for full session.{jira_line}"
+                ),
+                "--base", "master",
+                "--head", f"fix/{safe}",
+                "--repo", remote,
+            ], cwd=wt, capture_output=True, text=True)
+
+            if pr_proc.returncode == 0:
+                pr_url = pr_proc.stdout.strip()
+                r["pr_url"] = pr_url
+                print(f"  PR opened:  {bug}")
+                print(f"              {pr_url}")
+            else:
+                print(f"  PR failed for '{bug}': {pr_proc.stderr.strip()}")
+        except FileNotFoundError:
+            print(f"  PR skipped for '{bug}': `gh` not found in PATH")
+        except Exception as e:
+            print(f"  PR skipped for '{bug}': {e}")
+
+    # Jira ticket
+    if jira_enabled:
+        try:
+            key, ticket_url = create_jira_ticket(bug, pr_url)
+            r["jira_key"] = key
+            r["jira_url"] = ticket_url
+            print(f"  Jira ticket: {key}  {ticket_url}")
+        except Exception as e:
+            print(f"  Jira skipped for '{bug}': {e}")
+
+# Persist pr_url and jira_key back into results JSON
+json.dump(results, open(sys.argv[1], "w"), indent=2)
 PYEOF
 
 # ── Print summary ─────────────────────────────────────────────────────────────
@@ -277,22 +382,24 @@ failed = [r for r in results if r["status"] != "fixed"]
 total_tok = sum(r.get("tokens_total", 0) for r in results)
 total_ms  = sum(r.get("duration_ms",  0) for r in results)
 
-W = 80
+W = 100
 print("\n" + "─" * W)
 print(f"  MORPHEUS SUMMARY — {len(results)} bugs  |  {len(fixed)} fixed  |  {len(failed)} failed")
 print("─" * W)
-print(f"  {'Bug':<30} {'Status':<8} {'Tests+':>6}  {'Duration':>9}  {'Tokens':>9}")
+print(f"  {'Bug':<28} {'Status':<8} {'Tests+':>6}  {'Duration':>8}  {'Tokens':>8}  {'PR / Jira'}")
 print("  " + "─" * (W - 2))
 for r in results:
-    ms  = r.get("duration_ms", 0)
-    dur = f"{ms//60000}m{(ms%60000)//1000}s" if ms else "—"
-    tok = f"{r.get('tokens_total',0):,}"      if r.get("tokens_total") else "—"
-    add = f"+{r.get('tests_added', 0)}"       if r.get("tests_added") is not None else "—"
-    fl  = r.get("failed_after", "?")
-    sym = "✓" if r["status"] == "fixed" else "✗"
-    print(f"  {sym} {r['bug']:<28} {r['status']:<8} {add:>6}  {dur:>9}  {tok:>9}")
+    ms   = r.get("duration_ms", 0)
+    dur  = f"{ms//60000}m{(ms%60000)//1000}s" if ms else "—"
+    tok  = f"{r.get('tokens_total',0):,}"      if r.get("tokens_total") else "—"
+    add  = f"+{r.get('tests_added', 0)}"       if r.get("tests_added") is not None else "—"
+    sym  = "✓" if r["status"] == "fixed" else "✗"
+    pr   = r.get("pr_url", "—")
+    jira = r.get("jira_key", "")
+    link = f"{pr}  {jira}" if jira else pr
+    print(f"  {sym} {r['bug']:<26} {r['status']:<8} {add:>6}  {dur:>8}  {tok:>8}  {link}")
 print("  " + "─" * (W - 2))
-print(f"  {'TOTAL':<30} {'':8} {'':6}  {total_ms//60000}m{(total_ms%60000)//1000}s  {total_tok:>9,}")
+print(f"  {'TOTAL':<28} {'':8} {'':6}  {total_ms//60000}m{(total_ms%60000)//1000}s  {total_tok:>8,}")
 if failed:
     print(f"\n  Failed: {', '.join(r['bug'] for r in failed)}")
 print("─" * W + "\n")
