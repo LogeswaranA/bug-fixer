@@ -100,6 +100,8 @@ Poll or stream each worker's exit status. Record for each:
 
 ### Step 5 — Open PRs for successful workers
 
+Orchestrator mode always uses **Auto PR** — it runs headless and cannot present a human gate per worker. This is intentional: the orchestrator's summary report lists all PR URLs so the human can review them after the batch completes.
+
 For each worker with `status: fixed`:
 
 ```bash

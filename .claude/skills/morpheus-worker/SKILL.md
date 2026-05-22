@@ -73,6 +73,31 @@ cat .mcp.json 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin);
 
 **Do not proceed to degraded mode when the fix is a missing config file.** Degraded mode is only for when `.mcp.json` is correct but the server is transiently unavailable.
 
+**Step 0.5 — Create fix branch (never work on main or master)**
+
+```bash
+CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||' || echo "main")
+```
+
+| Current branch | Action |
+|---|---|
+| `main` or `master` or matches `$DEFAULT_BRANCH` | Create and switch: `git checkout -b fix/<issue-id>` |
+| Already on `fix/…` or any non-default branch | Continue — branch already exists (orchestrator worktree path) |
+
+Branch naming rules:
+- Known issue ID (e.g. `JIRA-101`, `KAN-229`): use `fix/JIRA-101`
+- Plain-language summary or stack trace: slugify the first 5 words → `fix/mfa-login-500-post-auth`
+- Always lowercase, hyphens only, no spaces or special characters
+
+```bash
+# Example: create and push branch
+git checkout -b fix/<issue-id>
+git push -u origin fix/<issue-id>
+```
+
+**Do not make any code changes — including writing test files — while on `main`, `master`, or the default branch. Stop and create the branch first.**
+
 1. Call `gitnexus_list_repos()` — verify the index is non-empty. If empty, run `npx gitnexus analyze` and re-check before continuing.
 2. Call `gitnexus_query({query: "<bug summary>"})` — broad orientation, find candidate symbols.
 3. Call `gitnexus_context({name: "<top candidate>"})` — assemble relevant context bundle.
@@ -139,6 +164,8 @@ If a **Superpowers skill** is unavailable:
 | Contract check | `gitnexus_group_contracts` (if multi-repo) | cross-repo breakage ruled out |
 | Verify | `Skill("superpowers-verification-before-completion")` | fresh green evidence + `suite_after_fix` + coverage captured in `.morpheus-qa.json` |
 | Review | `Skill("superpowers-requesting-code-review")` | review findings and follow-up actions |
+| **Human gate — PR method** | Pause and ask human: auto PR or manual PR | Human choice confirmed before proceeding |
+| Create PR | auto: `gh pr create`; manual: print branch + SHA | PR URL confirmed or instructions printed |
 | **Emit summaries** | **MANDATORY** | print MORPHEUS TELEMETRY SUMMARY block, then QA ARTIFACT SUMMARY block |
 
 **QA artifact checkpoints** — update `.morpheus-qa.json` at these specific stages:
@@ -149,6 +176,141 @@ If a **Superpowers skill** is unavailable:
 | Fix | `tests_modified` list (any existing tests tightened) |
 | Verify | `suite_after_fix` (total/pass/fail/skip/duration), `coverage` delta if tool available |
 | Review | `ui_qa` result (invoked or skipped + reason), `security_qa` result (invoked or skipped + reason) |
+
+### PR creation
+
+#### Step 1 — Commit and push the fix branch
+
+Before asking the human, commit all changes and push the branch. This is always done regardless of which PR path the human chooses.
+
+```bash
+# Stage only fix-related changes (never use git add -A)
+git add -p
+
+git commit -m "fix(<issue-id>): <one-line summary>
+
+- Root cause: <what was broken>
+- Fix: <what changed>
+- Regression test: <test file and name>
+
+Fixes <issue-id>"
+
+DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||' || echo "main")
+git push -u origin fix/<issue-id>
+```
+
+#### Step 2 — Human gate: ask how to proceed with the PR
+
+**After pushing, pause and ask the human before creating the PR.** Use `AskUserQuestion` with these two options:
+
+```
+Question: "Fix branch `fix/<issue-id>` is pushed. How would you like to create the PR?"
+
+Option A — Auto PR (Recommended)
+  Claude runs `gh pr create` now. The PR will target `<DEFAULT_BRANCH>` with
+  a pre-filled title, description, and verification checklist.
+
+Option B — Manual PR
+  Claude prints the branch name, commit SHA, and a pre-filled PR body.
+  You open the PR yourself in GitHub / GitLab / Bitbucket.
+```
+
+Wait for the human's response before proceeding. Do **not** auto-create the PR if the human has not answered.
+
+#### Step 3A — Auto PR path
+
+If the human chose **Auto PR**:
+
+```bash
+gh pr create \
+  --title "fix(<issue-id>): <one-line bug summary>" \
+  --base "$DEFAULT_BRANCH" \
+  --head "fix/<issue-id>" \
+  --body "$(cat <<'EOF'
+## Bug
+<!-- issue-id and one-line summary -->
+
+## Root cause
+<!-- what was broken and why -->
+
+## Fix
+<!-- what changed, kept as narrow as possible -->
+
+## Verification
+- [ ] Regression test added: `<test file>::<test name>`
+- [ ] `gitnexus_detect_changes` run
+- [ ] `gitnexus_impact` upstream + downstream run
+- [ ] `gitnexus_api_impact` run (if routes changed)
+- [ ] `superpowers-verification-before-completion` passed
+- [ ] `superpowers-requesting-code-review` passed
+- [ ] UI QA (`GStack /qa`): invoked / skipped — <reason>
+- [ ] Security QA (`GStack /cso`): invoked / skipped — <reason>
+
+## Test suite delta
+| | Before | After | Delta |
+|---|---|---|---|
+| Total | - | - | - |
+| Passed | - | - | - |
+| Failed | - | - | - |
+
+Fixed by morpheus-fix-bug-using-gitnexus
+EOF
+)"
+```
+
+After `gh pr create` completes, print the PR URL to the session output and record it in `.morpheus-telemetry.json` under `pr_url`.
+
+If `gh` is not installed or returns an error, automatically fall back to the Manual PR path and tell the human.
+
+#### Step 3B — Manual PR path
+
+If the human chose **Manual PR**, print this block and wait — do not proceed further until the human confirms they have opened the PR:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  MANUAL PR INSTRUCTIONS                                     │
+├─────────────────────────────────────────────────────────────┤
+│  Branch:        fix/<issue-id>                              │
+│  Base branch:   <DEFAULT_BRANCH>                            │
+│  Commit SHA:    <git rev-parse HEAD>                        │
+│  Compare URL:   <remote-url>/compare/<DEFAULT_BRANCH>...fix/<issue-id> │
+├─────────────────────────────────────────────────────────────┤
+│  Suggested PR title:                                        │
+│    fix(<issue-id>): <one-line bug summary>                  │
+├─────────────────────────────────────────────────────────────┤
+│  Suggested PR body:                                         │
+│                                                             │
+│  ## Bug                                                     │
+│  <issue-id>: <summary>                                      │
+│                                                             │
+│  ## Root cause                                              │
+│  <what was broken>                                          │
+│                                                             │
+│  ## Fix                                                     │
+│  <what changed>                                             │
+│                                                             │
+│  ## Verification                                            │
+│  - [ ] Regression test added: <file>::<name>                │
+│  - [ ] gitnexus_detect_changes run                          │
+│  - [ ] gitnexus_impact upstream + downstream run            │
+│  - [ ] superpowers-verification-before-completion passed    │
+│  - [ ] superpowers-requesting-code-review passed            │
+│  - [ ] UI QA: invoked / skipped — <reason>                  │
+│  - [ ] Security QA: invoked / skipped — <reason>            │
+│                                                             │
+│  Fixed by morpheus-fix-bug-using-gitnexus                   │
+└─────────────────────────────────────────────────────────────┘
+
+Please open the PR and paste the URL here so it can be recorded.
+```
+
+Once the human pastes the PR URL, record it in `.morpheus-telemetry.json` under `pr_url` and continue to Emit summaries.
+
+**PR rules (apply to both paths):**
+- `--base` is always the repo's default branch — detected dynamically, never hardcoded
+- `--head` is always `fix/<issue-id>` — never `main` or `master`
+- Do **not** merge the branch directly — the PR is the merge gate
+- Do **not** skip the human gate, even in headless mode — if running headless and the human cannot respond, default to Auto PR and log it
 
 ### Workflow diagram
 
@@ -514,6 +676,16 @@ Rendering rules:
 - Do **not** declare done if `suite_after_fix.failed >= suite_before_fix.failed`.
 - Do **not** skip the QA summary block.
 - The regression test file and name must be in `.morpheus-qa.json` before the Stop hook runs.
+
+### Branch and PR non-negotiable rules
+
+- Do **not** make any code change (including test files) while on `main`, `master`, or the default branch — create the fix branch first.
+- Do **not** push commits directly to `main` or `master` — always go through a PR.
+- Do **not** hardcode `main` as the base branch — detect it dynamically via `git symbolic-ref`.
+- Do **not** auto-create the PR without asking the human first — always present the Auto/Manual choice via `AskUserQuestion`.
+- Do **not** declare done without a PR URL — the PR is the delivery artifact, not the local commit.
+- If running inside an orchestrator worktree, the branch already exists — do not create another one.
+- In headless mode where `AskUserQuestion` cannot block, default to Auto PR and log the decision in `.morpheus-telemetry.json`.
 
 ---
 

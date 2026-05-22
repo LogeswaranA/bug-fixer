@@ -46,6 +46,8 @@ Companion reference for `morpheus-fix-bug-using-gitnexus`. Not a skill file — 
 | **Orchestrator: merge conflict between worker branches** | do not merge — PRs are the resolution gate; flag in summary |
 | **GSD escalation: Integration Security Gate skipped** | block PR creation — `.morpheus-integration-qa.json` must exist with `result: "pass"` |
 | **GSD escalation: Integration verification failed** | block PR creation — fix failures and re-run `superpowers-verification-before-completion` on the integrated branch |
+| **Worker started on main/master** | **STOP** — run `git checkout -b fix/<issue-id>` before touching any file |
+| **PR created directly against main without a fix branch** | Close the PR, create the branch, re-open from `fix/<issue-id>` → default branch |
 | Relative path in `.mcp.json` breaks startup | replace with absolute path or use `npx gitnexus` from `PATH` |
 | No reproduction exists yet | create the smallest failing test or script before patching |
 | Worktree lacks secrets or local config | use `.worktreeinclude` or a worktree hook |

@@ -37,6 +37,9 @@ Pass all arguments and context through to the delegated skill unchanged.
 - Do **not** rename symbols with find-and-replace — use `gitnexus_rename`.
 - Do **not** end the session without printing the MORPHEUS TELEMETRY SUMMARY block followed by the QA ARTIFACT SUMMARY block.
 - Do **not** create the comprehensive PR (GSD multi-phase path) until `.morpheus-integration-qa.json` exists with both results set to `"pass"`.
+- Do **not** make any code change while on `main`, `master`, or the default branch — create a `fix/<issue-id>` branch first.
+- Do **not** push commits directly to `main` or `master` — every fix lands via a PR from a `fix/<issue-id>` branch.
+- Do **not** declare done without a PR URL — the PR is the delivery artifact.
 - If running inside a headless worker or git worktree, stay inside the assigned worktree.
 - Do **not** run in `claude -p --bare` mode — project skills, hooks, `.mcp.json`, and `CLAUDE.md` will not load.
 
