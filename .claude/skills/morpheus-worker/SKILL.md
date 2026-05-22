@@ -3,7 +3,6 @@ name: morpheus-worker
 description: Core single-bug fix workflow. Orients with GitNexus, reproduces the bug, writes a regression test, applies the narrowest fix, runs post-fix diagnostics, verifies, and requests review. Spawned by morpheus-fix-bug-using-gitnexus in worker mode or called directly for a single bug.
 when_to_use: Invoked by morpheus-fix-bug-using-gitnexus when a single bug ID, summary, stack trace, or failing test is provided. Can also be invoked directly for a single bug.
 argument-hint: "[issue-id | bug-summary | failing-test | stack-trace]"
-disable-model-invocation: true
 user-invocable: false
 ---
 
@@ -162,8 +161,8 @@ If a **Superpowers skill** is unavailable:
 | Verify impact | `gitnexus_impact(upstream)` + `gitnexus_impact(downstream)` | blast radius confirmed |
 | API check | `gitnexus_api_impact` (if routes changed) | route consumers identified |
 | Contract check | `gitnexus_group_contracts` (if multi-repo) | cross-repo breakage ruled out |
-| Verify | `Skill("superpowers-verification-before-completion")` | fresh green evidence + `suite_after_fix` + coverage captured in `.morpheus-qa.json` |
-| Review | `Skill("superpowers-requesting-code-review")` | review findings and follow-up actions |
+| Verify | `Skill("superpowers-verification-before-completion")` | fresh green evidence + `suite_after_fix` + coverage + **JT-SCI score** captured in `.morpheus-qa.json` |
+| Review | `Skill("superpowers-requesting-code-review")` | review findings + **QA test cases + `qa_score`** written to `.morpheus-qa.json` |
 | **Human gate — PR method** | Pause and ask human: auto PR or manual PR | Human choice confirmed before proceeding |
 | Create PR | auto: `gh pr create`; manual: print branch + SHA | PR URL confirmed or instructions printed |
 | **Emit summaries** | **MANDATORY** | print MORPHEUS TELEMETRY SUMMARY block, then QA ARTIFACT SUMMARY block |
@@ -252,6 +251,33 @@ gh pr create \
 | Total | - | - | - |
 | Passed | - | - | - |
 | Failed | - | - | - |
+| Coverage | - | - | - |
+
+## Engineer QA checklist
+<!-- Generated from .morpheus-qa.json qa_test_cases — reviewers: please verify each before approving -->
+
+| ID | Test case | Type | How to test |
+|---|---|---|---|
+| TC-001 | <regression scenario> | regression | Automated — run `<test file>::<test name>` |
+| TC-002 | <happy path scenario> | happy_path | Manual — <steps> |
+| TC-003 | <edge case scenario> | edge_case | Manual — <steps> |
+| TC-004 | <edge case scenario> | edge_case | Manual — <steps> |
+| TC-005 | <integration scenario> | integration | Manual — <steps> |
+
+**QA Score: <score>/1.00 — Grade: <A/B/C/D>**
+
+## JT-SCI accuracy score
+<!-- JIRA Ticket Specificity & Clarity Index: measures localisation quality, reproduction readiness, structural completeness -->
+
+| Dimension | Score | Notes |
+|---|---|---|
+| Lq — Localization quality | <n>/3 | <how root cause was found> |
+| Re — Reproduction readiness | <n>/3 | <test added? manual repro?> |
+| Sc — Structural completeness | <0.0–1.0> | <what components were present> |
+| Ps — Semantic penalty | <0.0–1.0> | <deductions if any> |
+| **JT-SCI total** | **<score>** | **Grade: <A/B/C/D>** |
+
+> Formula: JT-SCI = 0.40(Lq/3) + 0.40(Re/3) + 0.20·Sc − 0.10·Ps
 
 Fixed by morpheus-fix-bug-using-gitnexus
 EOF
@@ -495,6 +521,7 @@ Initialise `.morpheus-telemetry.json` at session start:
   "bug_id": "<issue-id>",
   "trace_id": null,
   "session_start_ms": 0,
+  "pr_url": null,
   "stages": {},
   "totals": {}
 }
@@ -502,7 +529,63 @@ Initialise `.morpheus-telemetry.json` at session start:
 
 ### Telemetry summary block
 
-Print before the Stop hook runs:
+**Before printing, read `.morpheus-telemetry.json` and extract actual values.** Do NOT copy the example numbers below — they are format examples only. Every value in the printed block must come from the state file written during this session.
+
+Extract values with:
+
+```bash
+# Read the state file
+TELEMETRY=$(cat .morpheus-telemetry.json)
+
+# Per stage — for each stage name, extract duration and tokens
+jq -r '.stages | to_entries[] | "\(.key) \(.value.duration_ms) \(.value.tokens_in // 0) \(.value.tokens_out // 0) \(.value.tokens_cache_read // 0)"' \
+   .morpheus-telemetry.json
+
+# Totals
+jq '.totals' .morpheus-telemetry.json
+
+# OTEL trace ID (null if not configured)
+jq -r '.trace_id // "not configured"' .morpheus-telemetry.json
+```
+
+Then print this block with the **actual extracted values** substituted in:
+
+```
+╔════════════════════════════════════════════════════════════════════════════╗
+║         MORPHEUS TELEMETRY SUMMARY — <bug_id from .morpheus-telemetry.json>  ║
+╠═══════════════════════╦══════════════╦═══════════════════════════════════╣
+║ Stage                 ║ Duration     ║ Tokens (in / out / cache)         ║
+╠═══════════════════════╬══════════════╬═══════════════════════════════════╣
+║ Orient                ║  <actual>    ║   <actual> / <actual> / <actual>  ║
+║ Assemble context      ║  <actual>    ║   <actual> / <actual> / <actual>  ║
+║ Reproduce             ║  <actual>    ║   <actual> / <actual> / <actual>  ║
+║ Localise              ║  <actual>    ║   <actual> / <actual> / <actual>  ║
+║ Prepare edit          ║  <actual>    ║   <actual> / <actual> / <actual>  ║
+║ Lock regression       ║  <actual>    ║   <actual> / <actual> / <actual>  ║
+║ Fix                   ║  <actual>    ║   <actual> / <actual> / <actual>  ║
+║ Diagnose change       ║  <actual>    ║   <actual> / <actual> / <actual>  ║
+║ Verify impact         ║  <actual>    ║   <actual> / <actual> / <actual>  ║
+║ API check             ║  <actual>    ║   <actual> / <actual> / <actual>  ║
+║ Contract check        ║  <actual>    ║   <actual> / <actual> / <actual>  ║
+║ Verify                ║  <actual>    ║   <actual> / <actual> / <actual>  ║
+║ Review                ║  <actual>    ║   <actual> / <actual> / <actual>  ║
+╠═══════════════════════╬══════════════╬═══════════════════════════════════╣
+║ TOTAL                 ║  <sum ms>    ║  <sum_in> / <sum_out> / <sum_cache> ║
+║                       ║  (<Xm Ys>)   ║  Combined total: <grand_total>    ║
+╠═══════════════════════╩══════════════╩═══════════════════════════════════╣
+║ OTEL Trace ID: <trace_id or "not configured">                            ║
+║ Trace URL:     <url or omit row if not configured>                       ║
+╚════════════════════════════════════════════════════════════════════════════╝
+```
+
+**Rules for filling the block:**
+- If a stage was skipped (e.g. API check when no routes changed), print `—` in Duration and Tokens.
+- If a stage has no token data (interactive mode without JSON markers), print `n/a` in Tokens.
+- Duration: print in ms for < 10,000 ms; convert to `Xm Ys` format for ≥ 10,000 ms.
+- Omit the OTEL rows entirely if `trace_id` is null.
+- If `.morpheus-telemetry.json` does not exist or is empty, print `⚠ telemetry state file missing — timing data not available` and continue.
+
+**Example of what the filled block looks like** (illustrative only — not real values):
 
 ```
 ╔════════════════════════════════════════════════════════════════════════════╗
@@ -519,20 +602,15 @@ Print before the Stop hook runs:
 ║ Fix                   ║  6,780 ms    ║   3,400 /   920 /  2,800          ║
 ║ Diagnose change       ║  2,100 ms    ║   2,800 /   440 /  2,400          ║
 ║ Verify impact         ║  4,560 ms    ║   4,100 /   680 /  3,600          ║
-║ API check             ║  1,890 ms    ║   2,200 /   380 /  1,900          ║
-║ Contract check        ║    890 ms    ║   1,100 /   220 /    900          ║
+║ API check             ║      —       ║   —                               ║
+║ Contract check        ║      —       ║   —                               ║
 ║ Verify                ║ 28,340 ms    ║  12,400 / 2,100 /  9,800          ║
 ║ Review                ║ 19,670 ms    ║   9,600 / 1,800 /  7,200          ║
 ╠═══════════════════════╬══════════════╬═══════════════════════════════════╣
-║ TOTAL                 ║ 157,434 ms   ║  87,600 / 15,480 / 67,800         ║
-║                       ║  (2m 37s)    ║  Combined total: 170,880 tokens   ║
-╠═══════════════════════╩══════════════╩═══════════════════════════════════╣
-║ OTEL Trace ID: 4bf92f3577b34da6a3ce929d0e0e4736                          ║
-║ Trace URL:     http://localhost:16686/trace/4bf92f3577b34da6a3ce929d0e0e4736 ║
+║ TOTAL                 ║ 124,754 ms   ║  79,400 / 14,880 / 57,400         ║
+║                       ║  (2m 4s)     ║  Combined total: 151,680 tokens   ║
 ╚════════════════════════════════════════════════════════════════════════════╝
 ```
-
-Omit the OTEL rows if OTEL is not configured.
 
 ---
 
@@ -544,7 +622,7 @@ Initialise `.morpheus-qa.json` at session start:
 
 ```json
 {
-  "schema_version": "1",
+  "schema_version": "2",
   "bug_id": "<issue-id>",
   "regression_test": null,
   "tests_added": [],
@@ -553,7 +631,10 @@ Initialise `.morpheus-qa.json` at session start:
   "suite_after_fix": null,
   "coverage": null,
   "ui_qa": null,
-  "security_qa": null
+  "security_qa": null,
+  "qa_test_cases": [],
+  "qa_score": null,
+  "jtsci": null
 }
 ```
 
@@ -634,34 +715,210 @@ jq '.security_qa = {"invoked": true, "result": "pass", "findings": []}' \
 # If not invoked: {"invoked": false, "reason": "no auth/security surface changed"}
 ```
 
-### QA summary block
+#### At "Review" — Generate QA test cases for engineers
 
-Print after the telemetry summary and before the Stop hook:
+After `superpowers-requesting-code-review` completes, generate a test case checklist engineers can use to verify the fix in review. Write it to `qa_test_cases` and compute `qa_score`.
+
+**How to generate test cases:**
+- **TC-001 (regression)**: Always present — the failing test that was added. Maps directly to `regression_test`.
+- **TC-002 (happy path)**: The primary user flow that the fix should not have broken. Derived from `gitnexus_impact` downstream consumers.
+- **TC-003+ (edge cases)**: 2–4 edge cases specific to the fix area. Derived from `gitnexus_context` callees and the root cause analysis.
+- **TC-integration**: One test per upstream caller identified in `gitnexus_impact(upstream)` — verify they still behave correctly.
+
+Each test case must have: `automated` (true if a test file covers it), `test_file` (path if automated), `steps` (for manual cases), and `expected_result`.
+
+```bash
+jq '.qa_test_cases = [
+  {
+    "id": "TC-001",
+    "title": "Regression: <original bug scenario>",
+    "type": "regression",
+    "automated": true,
+    "test_file": "<regression test file>::<test name>",
+    "steps": [],
+    "expected_result": "Test passes — original bug does not recur"
+  },
+  {
+    "id": "TC-002",
+    "title": "Happy path: <primary flow>",
+    "type": "happy_path",
+    "automated": false,
+    "test_file": null,
+    "steps": ["<step 1>", "<step 2>"],
+    "expected_result": "<expected behaviour>"
+  },
+  {
+    "id": "TC-003",
+    "title": "Edge case: <scenario>",
+    "type": "edge_case",
+    "automated": false,
+    "test_file": null,
+    "steps": ["<step 1>"],
+    "expected_result": "<expected behaviour>"
+  }
+]' .morpheus-qa.json > .morpheus-qa.tmp.json && mv .morpheus-qa.tmp.json .morpheus-qa.json
+```
+
+Then compute `qa_score` (0.0–1.0):
+
+| Component | Points | Condition |
+|---|---|---|
+| Regression test present and automated | 0.30 | `regression_test` non-null and `automated: true` |
+| At least one happy-path test case | 0.20 | `qa_test_cases` has type `happy_path` |
+| At least two edge-case test cases | 0.20 | `qa_test_cases` has ≥ 2 type `edge_case` |
+| All failing tests reach zero | 0.20 | `suite_after_fix.failed == 0` |
+| Coverage delta ≥ 0 | 0.10 | `coverage.delta_pct >= 0` (or coverage null = 0.05) |
+
+```bash
+jq '.qa_score = {
+      "total_test_cases": (<count of qa_test_cases>),
+      "automated_count": (<count where automated=true>),
+      "manual_count": (<count where automated=false>),
+      "regression_covered": true,
+      "happy_path_covered": true,
+      "edge_cases_count": 2,
+      "score": 0.90,
+      "grade": "A"
+    }' .morpheus-qa.json > .morpheus-qa.tmp.json && mv .morpheus-qa.tmp.json .morpheus-qa.json
+```
+
+Grade scale: A ≥ 0.85 | B ≥ 0.70 | C ≥ 0.55 | D < 0.55
+
+#### After Verify — Compute JT-SCI score
+
+The **JIRA Ticket Specificity & Clarity Index (JT-SCI)** is a post-fix accuracy metric. It measures how well-localised, reproducible, structurally complete, and semantically clear the fix is. Score is bounded 0.0–1.0.
+
+**Formula:**
 
 ```
-╔══════════════════════════════════════════════════════════════════╗
-║                QA ARTIFACT SUMMARY — JIRA-101                   ║
-╠══════════════════════════════════════════════════════════════════╣
-║ Regression test                                                  ║
-║   File:       tests/auth/test_login.py                          ║
-║   Test name:  test_mfa_login_500_regression                     ║
-║   Framework:  pytest                                             ║
-╠═══════════════════════╦══════════════════════════════════════════╣
-║ Test cases             ║ Added: 1   Modified: 0   Deleted: 0    ║
-╠═══════════╦════════════╬══════════════════╦═══════════════════════╣
-║ Suite     ║ Before fix ║ After fix        ║ Delta                ║
-╠═══════════╬════════════╬══════════════════╬═══════════════════════╣
-║ Total     ║ 142        ║ 143              ║ +1                   ║
-║ Passed    ║ 141        ║ 143              ║ +2                   ║
-║ Failed    ║   1        ║   0              ║ -1  ✓                ║
-║ Skipped   ║   2        ║   2              ║  0                   ║
-║ Duration  ║ 14.2 s     ║ 14.8 s           ║ +0.6 s               ║
-╠═══════════╬════════════╬══════════════════╬═══════════════════════╣
-║ Coverage  ║ 78.4%      ║ 79.1%            ║ +0.7%                ║
-╠═══════════╩════════════╩══════════════════╩═══════════════════════╣
-║ UI QA:        not invoked — no UI changes in this fix            ║
-║ Security QA:  not invoked — no auth surface changes              ║
-╚══════════════════════════════════════════════════════════════════╝
+JT-SCI(T) = α(Lq/3) + β(Re/3) + γSc − λPs
+```
+
+**Default weights:** α = 0.40, β = 0.40, γ = 0.20, λ = 0.10
+
+**Scoring rubric — evaluate honestly based on what actually happened in this session:**
+
+| Dimension | Score | Criteria |
+|---|---|---|
+| **Lq** — Localization Quality (0–3) | 3 | Used `gitnexus_context` on exact symbol; fix landed in that symbol |
+| | 2 | Used `gitnexus_query`; fix landed in the identified area |
+| | 1 | Used file-level search or manual navigation |
+| | 0 | Fix was speculative; root cause not confirmed before patching |
+| **Re** — Reproduction Readiness (0–3) | 3 | Failing regression test written + manual repro confirmed |
+| | 2 | Failing regression test written only |
+| | 1 | Manual repro steps only, no automated test |
+| | 0 | No reproduction established before fixing |
+| **Sc** — Structural Completeness (0.0–1.0) | +0.25 | Root cause clearly identified and documented |
+| | +0.25 | Regression test added and in `tests_added` |
+| | +0.25 | Post-fix GitNexus diagnostics all run |
+| | +0.25 | `superpowers-verification-before-completion` passed |
+| **Ps** — Semantic Penalty (0.0–1.0) | +0.30 | Fix scope is unclear or touches unrelated code |
+| | +0.30 | Root cause description is vague or missing |
+| | +0.20 | Test coverage gaps exist in the changed area |
+| | +0.20 | No clear evidence chain from symptom to root cause |
+
+Compute and write to `.morpheus-qa.json`:
+
+```bash
+# Example: Lq=3, Re=2, Sc=0.75, Ps=0.10, using default weights
+# JT-SCI = 0.40*(3/3) + 0.40*(2/3) + 0.20*0.75 - 0.10*0.10
+#        = 0.400 + 0.267 + 0.150 - 0.010 = 0.807
+
+jq '.jtsci = {
+      "formula": "α(Lq/3) + β(Re/3) + γSc − λPs",
+      "weights": {"alpha": 0.40, "beta": 0.40, "gamma": 0.20, "lambda": 0.10},
+      "scores": {
+        "Lq": 3,
+        "Re": 2,
+        "Sc": 0.75,
+        "Ps": 0.10
+      },
+      "components": {
+        "localization":    0.400,
+        "reproduction":    0.267,
+        "completeness":    0.150,
+        "penalty":        -0.010
+      },
+      "jtsci_score": 0.807,
+      "grade": "B",
+      "interpretation": "Well-localised fix with automated regression test; minor completeness gap."
+    }' .morpheus-qa.json > .morpheus-qa.tmp.json && mv .morpheus-qa.tmp.json .morpheus-qa.json
+```
+
+JT-SCI grade scale: A ≥ 0.85 | B ≥ 0.70 | C ≥ 0.55 | D < 0.55
+
+**A JT-SCI score below 0.55 (grade D) must be flagged in the PR body.** It indicates the fix carries localization or reproduction risk and needs closer review.
+
+### QA summary block
+
+**Before printing, read `.morpheus-qa.json` and extract actual values.** Do NOT copy the example numbers — they are format examples only. Every value must come from the state file written during this session.
+
+Extract values with:
+
+```bash
+cat .morpheus-qa.json | jq '{
+  bug_id,
+  regression_test,
+  tests_added_count: (.tests_added | length),
+  tests_modified_count: (.tests_modified | length),
+  suite_before_fix,
+  suite_after_fix,
+  coverage,
+  ui_qa,
+  security_qa,
+  qa_test_cases,
+  qa_score,
+  jtsci
+}'
+```
+
+Then print this block with **actual extracted values** substituted in. The block below is an example of the format only:
+
+```
+╔══════════════════════════════════════════════════════════════════════╗
+║        QA ARTIFACT SUMMARY — <bug_id from .morpheus-qa.json>        ║
+╠══════════════════════════════════════════════════════════════════════╣
+║ Regression test                                                      ║
+║   File:       tests/auth/test_login.py                              ║
+║   Test name:  test_mfa_login_500_regression                         ║
+║   Framework:  pytest                                                 ║
+╠═══════════════════════╦════════════════════════════════════════════╣
+║ Test cases (new)       ║ Added: 1   Modified: 0   Deleted: 0       ║
+╠═══════════╦════════════╬══════════════════╦══════════════════════════╣
+║ Suite     ║ Before fix ║ After fix        ║ Delta                   ║
+╠═══════════╬════════════╬══════════════════╬══════════════════════════╣
+║ Total     ║ 142        ║ 143              ║ +1                      ║
+║ Passed    ║ 141        ║ 143              ║ +2                      ║
+║ Failed    ║   1        ║   0              ║ -1  ✓                   ║
+║ Skipped   ║   2        ║   2              ║  0                      ║
+║ Duration  ║ 14.2 s     ║ 14.8 s           ║ +0.6 s                  ║
+╠═══════════╬════════════╬══════════════════╬══════════════════════════╣
+║ Coverage  ║ 78.4%      ║ 79.1%            ║ +0.7%                   ║
+╠═══════════╩════════════╩══════════════════╩══════════════════════════╣
+║ UI QA:       not invoked — no UI changes in this fix                ║
+║ Security QA: not invoked — no auth surface changes                  ║
+╠══════════════════════════════════════════════════════════════════════╣
+║ ENGINEER QA TEST CASES (5 total — 2 automated, 3 manual)           ║
+╠════╦═══════════════════════════════════╦══════════╦══════════════════╣
+║ ID ║ Title                             ║ Type     ║ Automated        ║
+╠════╬═══════════════════════════════════╬══════════╬══════════════════╣
+║ TC-001 ║ Regression: MFA login 500   ║ regression  ║ YES — pytest  ║
+║ TC-002 ║ Happy path: normal login    ║ happy_path  ║ NO — manual   ║
+║ TC-003 ║ Edge: MFA disabled user     ║ edge_case   ║ NO — manual   ║
+║ TC-004 ║ Edge: expired MFA token     ║ edge_case   ║ NO — manual   ║
+║ TC-005 ║ Integration: /auth/refresh  ║ integration ║ NO — manual   ║
+╠════╩═══════════════════════════════════╩══════════╩══════════════════╣
+║ QA Score: 0.90  Grade: A   (automated: 2/5, coverage delta: +0.7%) ║
+╠══════════════════════════════════════════════════════════════════════╣
+║ JT-SCI SCORE                                                        ║
+║   Lq (Localization):   3/3  — exact symbol via gitnexus_context    ║
+║   Re (Reproduction):   2/3  — failing test added, no manual repro  ║
+║   Sc (Completeness):  0.75  — root cause + test + diagnostics      ║
+║   Ps (Penalty):       0.10  — minor: no manual repro steps         ║
+║   ─────────────────────────────────────────────────────────        ║
+║   JT-SCI = 0.40(3/3) + 0.40(2/3) + 0.20(0.75) − 0.10(0.10)      ║
+║           = 0.400 + 0.267 + 0.150 − 0.010 = 0.807   Grade: B     ║
+╚══════════════════════════════════════════════════════════════════════╝
 ```
 
 Rendering rules:
@@ -669,6 +926,9 @@ Rendering rules:
 - If `coverage` is null → omit the Coverage row entirely.
 - If `failed` delta is 0 or positive → flag with `⚠ regression` and Stop hook must block.
 - If `ui_qa.invoked` is false → print `not invoked — <reason>`.
+- If `qa_test_cases` is empty → print `⚠ no engineer test cases generated` and flag in PR body.
+- If `jtsci.jtsci_score < 0.55` → print `⚠ JT-SCI grade D — flag for close review in PR`.
+- Always print the full JT-SCI component breakdown so reviewers can see where points were lost.
 
 ### QA non-negotiable rules
 

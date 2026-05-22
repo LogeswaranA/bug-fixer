@@ -2,7 +2,6 @@
 name: morpheus-integration-gate
 description: Mandatory security and QA gate for GSD multi-phase bug fixes. Runs on the full combined diff after all phases integrate — before the comprehensive PR is created. Individual per-session security checks only cover partial changes; this gate sees the complete cross-phase changeset.
 when_to_use: Invoked by morpheus-worker at the end of a GSD escalation, after all phase branches are integrated and before the comprehensive PR is opened. Never skipped.
-disable-model-invocation: true
 user-invocable: false
 ---
 

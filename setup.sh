@@ -1,10 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SKILL_NAME="morpheus-fix-my-bug"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SKILL_SRC="${SCRIPT_DIR}/.claude/skills/${SKILL_NAME}/SKILL.md"
-TARGET_DIR="${PWD}/.claude/skills/${SKILL_NAME}"
+
+# Skills to install (directory names under .claude/skills/ in this repo)
+SKILLS=(
+  "morpheus-fix-bug-using-gitnexus"
+  "morpheus-worker"
+  "morpheus-orchestrator"
+  "morpheus-integration-gate"
+)
 
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -22,35 +27,36 @@ manual() {
 }
 
 echo ""
-echo -e "${BOLD}morpheus-fix-my-bug — setup${NC}"
-echo "=============================="
+echo -e "${BOLD}morpheus-fix-bug-using-gitnexus — setup${NC}"
+echo "========================================="
 
-# ── 1. Gortex ──────────────────────────────────────────────────────────────
-step "1. Gortex"
+# ── 1. GitNexus MCP ────────────────────────────────────────────────────────
+step "1. GitNexus MCP"
 
-if command -v gortex &>/dev/null; then
-  ok "Gortex already installed"
+if command -v npx &>/dev/null; then
+  ok "npx available (GitNexus is delivered as an MCP server via npx)"
 else
-  warn "Gortex not found — installing..."
-  curl -fsSL https://get.gortex.dev | sh
-  ok "Gortex installed"
+  err "npx not found — install Node.js 18+ first"
+  echo "  https://nodejs.org"
+  exit 1
 fi
 
-if gortex daemon status 2>/dev/null | grep -q "ready"; then
-  ok "Gortex daemon already running"
+echo "  GitNexus MCP is configured per-project in .claude/settings.json."
+echo "  Verify it is listed under 'mcpServers' in your Claude Code settings."
+if grep -q '"gitnexus"' "${PWD}/.claude/settings.json" 2>/dev/null; then
+  ok "gitnexus MCP entry found in .claude/settings.json"
 else
-  warn "Starting Gortex daemon..."
-  gortex daemon start --detach
-  sleep 2
-  ok "Gortex daemon started"
-fi
+  warn "gitnexus MCP entry not found in .claude/settings.json"
+  echo "  Add the following to your project's .claude/settings.json:"
+  cat <<'SNIPPET'
 
-if gortex daemon status 2>/dev/null | grep -q "$(basename "$PWD")"; then
-  ok "Repo already tracked"
-else
-  warn "Tracking current repo..."
-  gortex track .
-  ok "Repo tracked — indexing in background"
+    "mcpServers": {
+      "gitnexus": {
+        "command": "npx",
+        "args": ["-y", "@gitnexus/mcp@latest"]
+      }
+    }
+SNIPPET
 fi
 
 # ── 2. Superpowers ─────────────────────────────────────────────────────────
@@ -81,22 +87,33 @@ else
   MISSING_GSTACK=true
 fi
 
-# ── 4. Install the skill ───────────────────────────────────────────────────
-step "4. Installing /${SKILL_NAME} skill"
+# ── 4. Install skills ──────────────────────────────────────────────────────
+step "4. Installing Morpheus skills"
 
-if [ ! -f "$SKILL_SRC" ]; then
-  err "Skill source not found at: ${SKILL_SRC}"
-  echo "  Make sure you are running this script from the bug-fixer repo root."
-  exit 1
-fi
-
+SAME_REPO=false
 if [ "$(realpath "$PWD")" = "$(realpath "$SCRIPT_DIR")" ]; then
-  ok "Already in the skill source repo — no copy needed"
-else
-  mkdir -p "$TARGET_DIR"
-  cp "$SKILL_SRC" "${TARGET_DIR}/SKILL.md"
-  ok "Skill installed at ${TARGET_DIR}/SKILL.md"
+  SAME_REPO=true
+  ok "Running from the bug-fixer repo itself — no copy needed"
 fi
+
+for SKILL in "${SKILLS[@]}"; do
+  SKILL_SRC="${SCRIPT_DIR}/.claude/skills/${SKILL}/SKILL.md"
+  TARGET_DIR="${PWD}/.claude/skills/${SKILL}"
+
+  if [ ! -f "$SKILL_SRC" ]; then
+    err "Skill source not found: ${SKILL_SRC}"
+    echo "  Make sure you are running this script from the bug-fixer repo root."
+    exit 1
+  fi
+
+  if [ "$SAME_REPO" = "true" ]; then
+    ok "${SKILL} — already in place"
+  else
+    mkdir -p "$TARGET_DIR"
+    cp "$SKILL_SRC" "${TARGET_DIR}/SKILL.md"
+    ok "${SKILL} installed → ${TARGET_DIR}/SKILL.md"
+  fi
+done
 
 # ── 5. Summary ─────────────────────────────────────────────────────────────
 echo ""
@@ -107,17 +124,19 @@ if [ "${MISSING_SUPERPOWERS:-false}" = "true" ] || [ "${MISSING_GSTACK:-false}" 
   warn "Setup incomplete — manual steps required above."
   echo ""
   echo "  Once complete, open Claude Code in this repo and run:"
-  echo -e "  ${BOLD}/skills${NC}  — confirm ${SKILL_NAME} appears"
-  echo -e "  ${BOLD}/mcp${NC}     — confirm gortex is connected"
+  echo -e "  ${BOLD}/skills${NC}  — confirm morpheus-fix-bug-using-gitnexus appears"
+  echo -e "  ${BOLD}/mcp${NC}     — confirm gitnexus is connected"
 else
   ok "All dependencies ready."
   echo ""
-  echo "  Open Claude Code in this repo and verify:"
-  echo -e "    ${BOLD}/skills${NC}  — should list ${SKILL_NAME}"
-  echo -e "    ${BOLD}/mcp${NC}     — should show gortex connected"
+  echo "  Open Claude Code in your target repo and verify:"
+  echo -e "    ${BOLD}/skills${NC}  — should list morpheus-fix-bug-using-gitnexus"
+  echo -e "    ${BOLD}/mcp${NC}     — should show gitnexus connected"
   echo ""
   echo "  Then run:"
-  echo -e "    ${BOLD}/morpheus-fix-my-bug \"describe the bug or paste a stack trace\"${NC}"
+  echo -e "    ${BOLD}/morpheus-fix-bug-using-gitnexus \"describe the bug or paste a stack trace\"${NC}"
+  echo -e "  or for batch mode:"
+  echo -e "    ${BOLD}/morpheus-fix-bug-using-gitnexus --jql \"project = MYPROJ AND status = Open\"${NC}"
 fi
 
 echo ""

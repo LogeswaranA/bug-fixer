@@ -3,7 +3,6 @@ name: morpheus-orchestrator
 description: Multi-bug batch orchestrator. Resolves a list of bug IDs (directly or via JQL), creates isolated git worktrees, runs morpheus-worker sessions in a slot-based pool, opens PRs for fixed bugs, and prints a summary report. Spawned by morpheus-fix-bug-using-gitnexus when two or more IDs or --jql is provided.
 when_to_use: Invoked by morpheus-fix-bug-using-gitnexus when multiple bug IDs or --jql is provided. Not invoked directly by users.
 argument-hint: "[issue-id ...] | --jql \"<JQL query>\" | --parallel <N>"
-disable-model-invocation: true
 user-invocable: false
 ---
 
@@ -105,6 +104,8 @@ Orchestrator mode always uses **Auto PR** — it runs headless and cannot presen
 For each worker with `status: fixed`:
 
 ```bash
+DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||' || echo "main")
+
 gh pr create \
   --title "fix: <issue-id> — <one-line bug summary>" \
   --body "$(cat <<'EOF'
@@ -125,7 +126,7 @@ gh pr create \
 Fixed by morpheus-fix-bug-using-gitnexus
 EOF
 )" \
-  --base main \
+  --base "$DEFAULT_BRANCH" \
   --head fix/<issue-id>
 ```
 
