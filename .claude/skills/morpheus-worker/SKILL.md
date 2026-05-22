@@ -445,11 +445,9 @@ Each `usage` event:
 
 Accumulate delta usage across events to attribute tokens to the active stage. Store per-stage sums in `.morpheus-telemetry.json`.
 
-**Interactive mode** — after each stage, emit:
+**Interactive mode** — token counts are **not available**. Claude has no introspective access to its own token usage during an interactive Claude Code session. The runtime does not expose `usage` events to the model — only the harness outside the session sees them. Print `n/a` in the Tokens column for every stage. Do **not** attempt to estimate or synthesise token numbers; print `n/a` and move on.
 
-```json
-{"morpheus_telemetry": true, "stage": "<stage-name>", "tokens": {"input": 0, "output": 0, "cache_read": 0, "cache_write": 0}}
-```
+To get real per-stage token data, run in headless mode (see above).
 
 ### OpenTelemetry
 
@@ -922,6 +920,7 @@ Then print this block with **actual extracted values** substituted in. The block
 ```
 
 Rendering rules:
+- **Print the entire block exactly once, top to bottom, in a single output.** Do NOT loop over `qa_test_cases` and emit the surrounding box structure per row — that causes the box to repeat. Assemble the complete block text first, then emit it in one piece.
 - If `suite_before_fix` is null → print `baseline not captured` and block at Stop hook.
 - If `coverage` is null → omit the Coverage row entirely.
 - If `failed` delta is 0 or positive → flag with `⚠ regression` and Stop hook must block.
