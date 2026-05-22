@@ -242,6 +242,7 @@ This skill fixes bugs with a strict order of operations:
 7. Use **Superpowers `/requesting-code-review`** for review.
 8. Use **GStack** only when a UI/browser review, security review, or tie-break decision is needed.
 9. Use **GSD** only if the bug becomes large, multi-session, or context-heavy.
+10. When escalating to GSD (multi-phase path), after all phases are integrated and **before the comprehensive PR is created**, run a mandatory **Integration Security & QA Gate** on the full combined diff — individual per-session checks only cover partial changes and cannot detect cross-phase vulnerabilities.
 
 Non-negotiable rules:
 
@@ -898,6 +899,8 @@ Rendering rules:
 | **Orchestrator: worker Stop hook blocks** | mark as `blocked`, leave worktree intact, include reason in summary |
 | **Orchestrator: PR creation fails** | log the failure per bug; do not skip the summary report |
 | **Orchestrator: merge conflict between worker branches** | do not merge — PRs are the resolution gate; flag in summary |
+| **GSD escalation: Integration Security Gate skipped** | block PR creation — `.morpheus-integration-qa.json` must exist with `result: "pass"` before the comprehensive PR is opened |
+| **GSD escalation: Integration verification failed** | block PR creation — fix failures and re-run `superpowers-verification-before-completion` on the integrated branch |
 | Relative path in `.mcp.json` breaks startup | replace with absolute path or use `npx gitnexus` from `PATH` |
 | No reproduction exists yet | create the smallest failing test or script before patching |
 | Worktree lacks secrets or local config | use `.worktreeinclude` or a worktree hook |
@@ -917,6 +920,50 @@ Do **not** use GSD by default. Escalate only when:
 - or the worker prompt explicitly requests `/gsd-debug`.
 
 When escalating: preserve the current bug brief, evidence, root-cause hypothesis, and changed symbols. Start each new phase with the same GitNexus context contract. Return to this skill's post-fix diagnostic sequence before completing.
+
+### Integration Security & QA Gate (mandatory for all GSD escalations)
+
+After all phases complete and branches are integrated, **before creating the comprehensive PR**, run a holistic security and QA check on the **combined diff** across all phases. Per-session checks only see each phase's narrow slice — cross-phase vulnerabilities (e.g. auth change in Phase 1 + input-validation change in Phase 3) are invisible to any individual session.
+
+**Required steps at integration — in order, non-skippable:**
+
+1. Run `gitnexus_detect_changes({scope: "integrated-branch"})` on the full merged branch to confirm the complete blast radius.
+2. Invoke `Skill("security-review")` **or** `GStack /cso` against the full integrated branch diff — not a per-phase diff.
+   - Use `GStack /cso` if the fix touches auth, cryptography, input validation, session handling, or data exposure.
+   - Use `Skill("security-review")` for general vulnerability sweep otherwise.
+3. Invoke `Skill("superpowers-verification-before-completion")` on the integrated branch to confirm the full suite is green end-to-end.
+4. If **any** security findings are returned: fix them in a dedicated integration-fix session, then re-run steps 1–3. Do **not** open the PR with open findings.
+5. Write a top-level `.morpheus-integration-qa.json` at the repo root before PR creation:
+
+```json
+{
+  "schema_version": "1",
+  "phases_completed": ["<phase-id-1>", "<phase-id-2>", "..."],
+  "integration_security_qa": {
+    "invoked": true,
+    "tool": "security-review | GStack /cso",
+    "result": "pass | fail",
+    "findings": []
+  },
+  "integration_verification": {
+    "invoked": true,
+    "result": "pass | fail",
+    "suite_total": 0,
+    "suite_failed": 0
+  }
+}
+```
+
+6. **Do not create the comprehensive PR** until `integration_security_qa.result` is `"pass"` and `integration_verification.result` is `"pass"`.
+
+**Why this gate exists and must not be skipped:**
+
+| Per-session check | Integration gate |
+|---|---|
+| Sees one phase's narrow diff only | Sees the full combined changeset |
+| Records `security_qa` in `.morpheus-qa.json` per session | Records result in `.morpheus-integration-qa.json` |
+| Optional (skipped if no auth/security surface changed in that session) | **Mandatory — always runs regardless of which surfaces each phase touched** |
+| Cannot detect cross-phase vulnerabilities | Can detect vulnerabilities that span phase boundaries |
 
 ## Examples
 

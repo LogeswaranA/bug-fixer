@@ -11,8 +11,9 @@
         "--jira-url", "https://neogov.jira.com/"
       ],
       "env": {
-        "JIRA_USERNAME": "${JIRA_USERNAME}",
-        "JIRA_API_TOKEN": "${JIRA_API_TOKEN}"
+        "JIRA_URL": "https://neogov.atlassian.net",
+        "JIRA_USERNAME": "your.email@neogov.com",
+        "JIRA_API_TOKEN": "your_actual_api_token_here"
       }
     }
   }
