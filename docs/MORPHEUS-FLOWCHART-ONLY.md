@@ -2,6 +2,17 @@
 
 > **🔒 Security Note**: As of 2026-05-23, all bug fixes now include a **mandatory security review** stage after the Fix step. The `security-review` skill scans for OWASP Top 10 vulnerabilities and blocks PR creation if CRITICAL or HIGH findings are detected.
 
+## 🔒 Important: Two Types of Security Checks
+
+Morpheus now has **two distinct security checkpoints**:
+
+| Check | When | What it does | Scope |
+|-------|------|--------------|-------|
+| **🔒 Security Review** | **MANDATORY** — After every fix | **Static code scanning**<br/>• SQL injection<br/>• Hardcoded secrets<br/>• Weak crypto<br/>• Command injection<br/>• AST pattern detection | Every bug fix |
+| **🔒 GStack /cso** | **OPTIONAL** — Only if auth surface changed | **Runtime behavior testing**<br/>• Auth flows<br/>• Session validation<br/>• Permission checks<br/>• Security integration testing | Only when auth/security surface modified |
+
+**Key difference**: Security Review scans **code** (static analysis), GStack /cso tests **behavior** (dynamic runtime testing).
+
 ## Main Decision Flow
 
 ```mermaid
@@ -32,7 +43,7 @@ flowchart TD
     TouchUI -->|YES| GStackQA[🎨 GStack /qa<br/>Browser validation<br/>Screenshots<br/>Accessibility]
     TouchUI -->|NO| SkipQA[Skip UI QA]
     
-    TouchSec -->|YES| GStackCSO[🔒 GStack /cso<br/>Security audit<br/>OWASP scan<br/>Auth validation]
+    TouchSec -->|YES| GStackCSO[🔒 GStack /cso<br/>Runtime auth behavior testing<br/>Session validation<br/>Permission checks<br/>NOT code scanning]
     TouchSec -->|NO| SkipCSO[Skip Security QA]
     
     GStackQA --> QAPass{QA Pass?}
@@ -190,7 +201,7 @@ flowchart LR
     UI -->|Yes| QA[GStack /qa]
     UI -->|No| PR[Create PR]
     
-    Sec -->|Yes| CSO[GStack /cso]
+    Sec -->|Yes| CSO[GStack /cso<br/>Runtime auth testing]
     Sec -->|No| PR
     
     QA --> PR
@@ -207,6 +218,11 @@ flowchart LR
     style GSD fill:#FF6B6B
     style IntegGate fill:#FF4500
 ```
+
+**Note on Security Checkpoints in Integration Points:**
+- **🔒 Security Review (inside Core)**: MANDATORY static code scan — runs on every fix
+- **🔒 GStack /cso (outside Core)**: OPTIONAL runtime auth testing — only if auth surface changed
+- **🔒 Integration Security Gate (GSD path)**: MANDATORY combined diff scan — only for multi-phase fixes
 
 ---
 
@@ -245,6 +261,72 @@ flowchart TD
 - **OWASP Top 10**: Covers all major vulnerability categories
 - **Structured Output**: JSON findings with severity, CWE, OWASP mapping, remediation
 - **Integration**: Results recorded in `.morpheus-qa.json` and displayed in QA summary
+
+---
+
+## Security Review vs. GStack /cso — When Each Runs
+
+**Understanding the Two Security Checkpoints:**
+
+```mermaid
+flowchart TD
+    Fix[Code Fix Applied] --> MandatorySec[🔒 Security Review<br/>MANDATORY<br/>Static Code Scanning]
+    
+    MandatorySec --> SecCheck{CRITICAL/HIGH<br/>vulnerabilities?}
+    SecCheck -->|YES| FixCode[Fix Code] --> MandatorySec
+    SecCheck -->|NO| Verify[✓ Verify]
+    
+    Verify --> AuthChanged{Did fix touch<br/>auth/security<br/>surface?}
+    
+    AuthChanged -->|NO| PR[Create PR]
+    AuthChanged -->|YES| OptionalSec[🔒 GStack /cso<br/>OPTIONAL<br/>Runtime Behavior Testing]
+    
+    OptionalSec --> BehaviorCheck{Auth behavior<br/>working correctly?}
+    BehaviorCheck -->|NO| FixBehavior[Fix Auth Logic] --> OptionalSec
+    BehaviorCheck -->|YES| PR
+    
+    style MandatorySec fill:#FF4500
+    style OptionalSec fill:#FFD700
+    style FixCode fill:#FF6B6B
+    style FixBehavior fill:#FF6B6B
+    style PR fill:#90EE90
+```
+
+| Aspect | 🔒 Security Review (Mandatory) | 🔒 GStack /cso (Optional) |
+|--------|-------------------------------|---------------------------|
+| **Type** | Static analysis | Dynamic runtime testing |
+| **When** | After EVERY fix | Only if auth/security surface changed |
+| **Scans** | Code patterns, AST | Actual behavior, integration |
+| **Detects** | • SQL injection<br/>• Hardcoded secrets<br/>• Weak crypto<br/>• Command injection<br/>• Input validation gaps | • Auth bypass<br/>• Broken sessions<br/>• Permission escalation<br/>• Token leaks<br/>• CSRF vulnerabilities |
+| **Tool** | `security-review` skill | GStack `/cso` command |
+| **Output** | `.security-review-findings.json` | QA report + screenshots |
+| **Blocks** | Progression to Verify | Progression to PR |
+
+**Example: Login Fix Scenario**
+
+```
+User reports: "Login returns 500 when MFA is enabled"
+
+1. Fix Applied: Update auth/login.py
+        ↓
+2. 🔒 Security Review (MANDATORY)
+   → Scans login.py for code vulnerabilities
+   → Finds: None
+   → Result: PASS
+        ↓
+3. Verify: Run tests
+        ↓
+4. Check: Did fix touch auth surface? → YES (login.py)
+        ↓
+5. 🔒 GStack /cso (OPTIONAL - triggered because auth changed)
+   → Tests actual login behavior
+   → Validates: MFA flow, session creation, token security
+   → Result: PASS
+        ↓
+6. Create PR
+```
+
+**TL;DR**: Security Review catches **code vulnerabilities** (always runs). GStack /cso validates **auth behavior** (only when auth surface changed). Both are necessary for different reasons.
 
 ---
 
