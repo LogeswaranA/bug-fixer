@@ -12,24 +12,26 @@ user-invocable: false
 2. Use **Superpowers `/systematic-debugging`** to reproduce and identify root cause before changing code.
 3. Use **Superpowers `/test-driven-development`** to add or tighten a failing regression test.
 4. Implement the **narrowest fix** consistent with the GitNexus graph and the failing test.
-5. Run **GitNexus post-fix diagnostics**:
+5. Run **mandatory security scan** via `Skill("security-review")` — blocks PR if CRITICAL or HIGH findings exist.
+6. Run **GitNexus post-fix diagnostics**:
    - `gitnexus_detect_changes`
    - `gitnexus_impact` upstream (who called the changed symbol)
    - `gitnexus_impact` downstream (what this symbol depends on)
    - `gitnexus_api_impact` (if HTTP routes or API surfaces changed)
    - `gitnexus_group_contracts` (if multi-repo groups are configured)
-6. Use **Superpowers `/verification-before-completion`** for fresh verification.
-7. Use **Superpowers `/requesting-code-review`** for review.
-8. Use **GStack `/qa`** only if UI/frontend changed; **GStack `/cso`** only if auth/security surface changed.
-9. If the bug escalates to GSD (multi-phase), invoke `Skill("morpheus-integration-gate")` after all phases integrate and before the comprehensive PR.
+7. Use **Superpowers `/verification-before-completion`** for fresh verification.
+8. Use **Superpowers `/requesting-code-review`** for review.
+9. Use **GStack `/qa`** only if UI/frontend changed.
+10. If the bug escalates to GSD (multi-phase), invoke `Skill("morpheus-integration-gate")` after all phases integrate and before the comprehensive PR.
 
-**Mandatory Superpowers invocations (use `Skill` tool — not inline emulation):**
+**Mandatory skill invocations (use `Skill` tool — not inline emulation):**
 
 | When | Skill to invoke |
 |---|---|
 | Before any code change | `Skill("superpowers-systematic-debugging")` |
 | Before writing the fix | `Skill("superpowers-test-driven-development")` |
-| After fix + diagnostics | `Skill("superpowers-verification-before-completion")` |
+| **After fix, before diagnostics** | **`Skill("security-review")` — blocks on CRITICAL/HIGH** |
+| After fix + security scan + diagnostics | `Skill("superpowers-verification-before-completion")` |
 | Before declaring done | `Skill("superpowers-requesting-code-review")` |
 | GSD path: after all phases integrate | `Skill("morpheus-integration-gate")` |
 
@@ -140,9 +142,10 @@ If a **GitNexus MCP tool** is unavailable (server transiently down, not config m
 - continue in degraded mode using `Read` / `Grep` / `Glob`
 - state explicitly that GitNexus is unavailable
 
-If a **Superpowers skill** is unavailable:
+If a **Superpowers skill or security-review** is unavailable:
 - **stop** — do not emulate inline
 - tell the user which skill is missing and ask them to install it or explicitly opt out
+- for `security-review`, fall back to manual code review if the skill is missing, but log a warning
 
 ---
 
@@ -157,6 +160,7 @@ If a **Superpowers skill** is unavailable:
 | Prepare edit | `gitnexus_context({name: "<target symbol>"})` | callers, deps, process participation |
 | Lock regression | `Skill("superpowers-test-driven-development")` | failing regression test + `suite_before_fix` captured in `.morpheus-qa.json` |
 | Fix | narrow code change only | test now passes locally; `tests_modified` updated in `.morpheus-qa.json` |
+| **Security scan** | `Skill("security-review")` **MANDATORY** | PASS (zero CRITICAL/HIGH findings); results in `.security-review-findings.json` |
 | Diagnose change | `gitnexus_detect_changes({scope: "staged"})` | changed symbols + affected processes |
 | Verify impact | `gitnexus_impact(upstream)` + `gitnexus_impact(downstream)` | blast radius confirmed |
 | API check | `gitnexus_api_impact` (if routes changed) | route consumers identified |
@@ -173,6 +177,7 @@ If a **Superpowers skill** is unavailable:
 |---|---|
 | Lock regression | `regression_test` (file, name, framework), `tests_added` list, `suite_before_fix` (total/pass/fail/skip) |
 | Fix | `tests_modified` list (any existing tests tightened) |
+| **Security scan** | **`security_scan` (invoked, result, findings_file, critical_count, high_count) — blocks on fail** |
 | Verify | `suite_after_fix` (total/pass/fail/skip/duration), `coverage` delta if tool available |
 | Review | `ui_qa` result (invoked or skipped + reason), `security_qa` result (invoked or skipped + reason) |
 
@@ -351,15 +356,17 @@ flowchart TD
     G --> H[gitnexus_context on target symbol — prepare edit]
     H --> I[superpowers-test-driven-development]
     I --> J[Narrow code fix]
-    J --> K[gitnexus_detect_changes]
-    K --> L[gitnexus_impact upstream + downstream]
-    L --> M[gitnexus_api_impact if routes changed]
-    M --> N[gitnexus_group_contracts if multi-repo]
-    N --> O[superpowers-verification-before-completion]
-    O --> P[superpowers-requesting-code-review]
-    P --> Q[Optional GStack /qa or /cso]
-    Q --> R[EMIT: MORPHEUS TELEMETRY SUMMARY block]
-    R --> S[EMIT: QA ARTIFACT SUMMARY block]
+    J --> K[security-review MANDATORY]
+    K -->|FAIL: CRITICAL/HIGH| J
+    K -->|PASS| L[gitnexus_detect_changes]
+    L --> M[gitnexus_impact upstream + downstream]
+    M --> N[gitnexus_api_impact if routes changed]
+    N --> O[gitnexus_group_contracts if multi-repo]
+    O --> P[superpowers-verification-before-completion]
+    P --> Q[superpowers-requesting-code-review]
+    Q --> R[Optional GStack /qa]
+    R --> S[EMIT: MORPHEUS TELEMETRY SUMMARY block]
+    S --> T[EMIT: QA ARTIFACT SUMMARY block]
 ```
 
 ---
@@ -628,6 +635,7 @@ Initialise `.morpheus-qa.json` at session start:
   "suite_before_fix": null,
   "suite_after_fix": null,
   "coverage": null,
+  "security_scan": null,
   "ui_qa": null,
   "security_qa": null,
   "qa_test_cases": [],
@@ -674,6 +682,35 @@ jq '.tests_modified = [{"file": "<path>", "test_name": "<name>", "change": "<why
 ```
 
 If no existing tests changed, leave `tests_modified` as `[]`.
+
+#### After "Security scan" (`security-review` — MANDATORY)
+
+```bash
+# Read the security-review output
+SECURITY_RESULT=$(cat .security-review-findings.json | jq -r '.result')
+CRITICAL_COUNT=$(cat .security-review-findings.json | jq -r '.summary.critical')
+HIGH_COUNT=$(cat .security-review-findings.json | jq -r '.summary.high')
+
+jq --arg result "$SECURITY_RESULT" \
+   --argjson critical "$CRITICAL_COUNT" \
+   --argjson high "$HIGH_COUNT" \
+   '.security_scan = {
+      "invoked": true,
+      "result": $result,
+      "findings_file": ".security-review-findings.json",
+      "critical_count": $critical,
+      "high_count": $high
+    }' .morpheus-qa.json > .morpheus-qa.tmp.json && mv .morpheus-qa.tmp.json .morpheus-qa.json
+```
+
+**If `result` is `"fail"` (CRITICAL or HIGH findings exist):**
+1. Present findings to the user
+2. Fix the security issues
+3. Re-run `Skill("security-review")`
+4. Update `.morpheus-qa.json` with new results
+5. Only proceed to "Diagnose change" when `result: "pass"`
+
+**Do not proceed past Security scan if CRITICAL or HIGH findings exist.**
 
 #### At "Verify" (`superpowers-verification-before-completion`)
 
@@ -862,6 +899,7 @@ cat .morpheus-qa.json | jq '{
   suite_before_fix,
   suite_after_fix,
   coverage,
+  security_scan,
   ui_qa,
   security_qa,
   qa_test_cases,
@@ -893,8 +931,9 @@ Then print this block with **actual extracted values** substituted in. The block
 ╠═══════════╬════════════╬══════════════════╬══════════════════════════╣
 ║ Coverage  ║ 78.4%      ║ 79.1%            ║ +0.7%                   ║
 ╠═══════════╩════════════╩══════════════════╩══════════════════════════╣
-║ UI QA:       not invoked — no UI changes in this fix                ║
-║ Security QA: not invoked — no auth surface changes                  ║
+║ Security scan: ✅ PASS — 0 CRITICAL, 0 HIGH findings               ║
+║ UI QA:         not invoked — no UI changes in this fix              ║
+║ Security QA:   not invoked — no auth surface changes                ║
 ╠══════════════════════════════════════════════════════════════════════╣
 ║ ENGINEER QA TEST CASES (5 total — 2 automated, 3 manual)           ║
 ╠════╦═══════════════════════════════════╦══════════╦══════════════════╣
@@ -924,6 +963,8 @@ Rendering rules:
 - If `suite_before_fix` is null → print `baseline not captured` and block at Stop hook.
 - If `coverage` is null → omit the Coverage row entirely.
 - If `failed` delta is 0 or positive → flag with `⚠ regression` and Stop hook must block.
+- **If `security_scan.result` is `"fail"` → print `❌ FAIL — <critical_count> CRITICAL, <high_count> HIGH` and Stop hook must block.**
+- **If `security_scan.result` is `"pass"` → print `✅ PASS — 0 CRITICAL, 0 HIGH findings`.**
 - If `ui_qa.invoked` is false → print `not invoked — <reason>`.
 - If `qa_test_cases` is empty → print `⚠ no engineer test cases generated` and flag in PR body.
 - If `jtsci.jtsci_score < 0.55` → print `⚠ JT-SCI grade D — flag for close review in PR`.
@@ -932,9 +973,11 @@ Rendering rules:
 ### QA non-negotiable rules
 
 - Do **not** proceed past Lock regression without capturing `suite_before_fix`.
+- **Do not proceed past Security scan if `security_scan.result` is `"fail"` — fix findings first.**
 - Do **not** declare done if `suite_after_fix.failed >= suite_before_fix.failed`.
 - Do **not** skip the QA summary block.
 - The regression test file and name must be in `.morpheus-qa.json` before the Stop hook runs.
+- **Security scan results (`.security-review-findings.json`) must exist and show PASS before PR creation.**
 
 ### Branch and PR non-negotiable rules
 
@@ -989,13 +1032,13 @@ Assistant:
 - Invoke superpowers-test-driven-development
 - Add failing regression test
 - Fix the smallest set of symbols needed
+- **Invoke security-review (mandatory) — blocks on CRITICAL/HIGH**
 - Call gitnexus_detect_changes
 - Call gitnexus_impact upstream + downstream
 - Call gitnexus_api_impact (route changed)
 - Invoke superpowers-verification-before-completion
 - Invoke superpowers-requesting-code-review
 - If UI flow changed, invoke GStack /qa
-- If auth surface changed, invoke GStack /cso
 - Print MORPHEUS TELEMETRY SUMMARY block
 - Print QA ARTIFACT SUMMARY block
 ```
