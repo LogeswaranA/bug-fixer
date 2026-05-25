@@ -289,3 +289,6 @@ main (or master / default branch)
         └── morpheus-integration-gate/
             └── SKILL.md             ← GSD multi-phase security & QA gate
 ```
+
+
+claude --output-format stream-json --verbose -p '/morpheus-fix-bug-using-gitnexus unable to save api_key' | tee session.log

@@ -29,5 +29,11 @@
         ]
       }
     ]
+  },  
+  "awsAuthRefresh": "aws sso login --profile 647088784885_Claude-Code-Bedrock",
+  "env": {
+    "AWS_PROFILE": "647088784885_Claude-Code-Bedrock",
+    "CLAUDE_CODE_USE_BEDROCK": "1",
+    "AWS_REGION": "us-east-1"
   }
 }

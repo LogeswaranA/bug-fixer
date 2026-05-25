@@ -1,0 +1,9 @@
+{
+  "schema_version": "1",
+  "bug_id": "test-bug",
+  "trace_id": null,
+  "session_start_ms": 0,
+  "pr_url": null,
+  "stages": {},
+  "totals": {}
+}

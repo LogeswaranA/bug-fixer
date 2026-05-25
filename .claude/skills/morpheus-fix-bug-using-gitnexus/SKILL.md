@@ -8,7 +8,6 @@ arguments:
   - bugs
   - jql
   - parallel
-disable-model-invocation: true
 user-invocable: true
 ---
 

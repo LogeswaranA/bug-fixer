@@ -9,20 +9,29 @@ user-invocable: false
 ## Summary — order of operations
 
 1. Use **GitNexus first** to orient in the repo, route the investigation, and narrow the blast radius.
-2. Use **Superpowers `/systematic-debugging`** to reproduce and identify root cause before changing code.
-3. Use **Superpowers `/test-driven-development`** to add or tighten a failing regression test.
-4. Implement the **narrowest fix** consistent with the GitNexus graph and the failing test.
-5. Run **mandatory security scan** via `Skill("security-review")` — blocks PR if CRITICAL or HIGH findings exist.
-6. Run **GitNexus post-fix diagnostics**:
+2. Use **GitNexus `git_log`** to understand historical context: recent changes, potential regression-causing commits, and code stability patterns.
+3. Use **Superpowers `/systematic-debugging`** to reproduce and identify root cause before changing code.
+4. Use **Superpowers `/test-driven-development`** to add or tighten a failing regression test.
+5. Implement the **narrowest fix** consistent with the GitNexus graph and the failing test.
+6. Run **mandatory security scan** via `Skill("security-review")` — blocks PR if CRITICAL or HIGH findings exist.
+7. Run **GitNexus post-fix diagnostics**:
    - `gitnexus_detect_changes`
    - `gitnexus_impact` upstream (who called the changed symbol)
    - `gitnexus_impact` downstream (what this symbol depends on)
    - `gitnexus_api_impact` (if HTTP routes or API surfaces changed)
    - `gitnexus_group_contracts` (if multi-repo groups are configured)
-7. Use **Superpowers `/verification-before-completion`** for fresh verification.
-8. Use **Superpowers `/requesting-code-review`** for review.
-9. Use **GStack `/qa`** only if UI/frontend changed.
-10. If the bug escalates to GSD (multi-phase), invoke `Skill("morpheus-integration-gate")` after all phases integrate and before the comprehensive PR.
+8. Use **Superpowers `/verification-before-completion`** for fresh verification.
+9. Use **Superpowers `/requesting-code-review`** for review.
+10. Use **GStack `/qa`** only if UI/frontend changed.
+11. If the bug escalates to GSD (multi-phase), invoke `Skill("morpheus-integration-gate")` after all phases integrate and before the comprehensive PR.
+
+**Why historical context matters:**
+- **Regression detection:** Identify which recent commit likely introduced the bug
+- **Code stability assessment:** Understand if this is a fragile area with repeated fixes
+- **Domain expert discovery:** Find the last person who touched this code for consultation
+- **Pattern recognition:** Spot systemic issues (e.g., "auth has been patched 4 times this month")
+- **Root cause validation:** Confirm suspicions by seeing what changed recently in the bug area
+- **PR context enrichment:** Give reviewers the "why now?" story, not just the "what changed?" diff
 
 **Mandatory skill invocations (use `Skill` tool — not inline emulation):**
 
@@ -101,11 +110,12 @@ git push -u origin fix/<issue-id>
 
 1. Call `gitnexus_list_repos()` — verify the index is non-empty. If empty, run `npx gitnexus analyze` and re-check before continuing.
 2. Call `gitnexus_query({query: "<bug summary>"})` — broad orientation, find candidate symbols.
-3. Call `gitnexus_context({name: "<top candidate>"})` — assemble relevant context bundle.
-4. Use GitNexus tools to localise the likely root-cause area.
-5. Before editing each target file, call `gitnexus_context` on the target symbol.
-6. Prefer `gitnexus_query` + `gitnexus_context` over whole-file reads.
-7. Only fall back to `Read`, `Grep`, or `Glob` when `.mcp.json` is correct but the server is transiently unavailable.
+3. Call `gitnexus_git_log({search: "<bug keywords>", since: "<30 days ago>", limit: 20})` — identify recent commits that may have introduced the bug. Extract keywords from bug summary for search.
+4. Call `gitnexus_context({name: "<top candidate>"})` — assemble relevant context bundle.
+5. Use GitNexus tools to localise the likely root-cause area.
+6. Before editing each target file, call `gitnexus_context` on the target symbol, then call `gitnexus_git_log({search: "<filename>", since: "<6 months ago>", limit: 5})` to understand recent changes.
+7. Prefer `gitnexus_query` + `gitnexus_git_log` + `gitnexus_context` over whole-file reads.
+8. Only fall back to `Read`, `Grep`, or `Glob` when `.mcp.json` is correct but the server is transiently unavailable.
 
 ---
 
@@ -115,6 +125,7 @@ git push -u origin fix/<issue-id>
 
 - `gitnexus_list_repos` — orient: verify index is non-empty
 - `gitnexus_query` — hybrid BM25 + semantic search; replaces `search_symbols` and `get_repo_outline`
+- `gitnexus_git_log` — full git history with filtering; identify regression-causing commits, understand code evolution, spot patterns of repeated fixes
 - `gitnexus_context` — 360-degree symbol view (callers + callees + process participation)
 - `gitnexus_impact` with `direction: "upstream"` — who depends on this symbol
 - `gitnexus_impact` with `direction: "downstream"` — what this symbol depends on
@@ -136,10 +147,65 @@ git push -u origin fix/<issue-id>
 - `/qa` — browser/UI validation (only if UI changed)
 - `/cso` — security audit (only if auth/security surface changed)
 
+### How to use git_log for historical context
+
+**Stage: Historical context (after Assemble context, before Reproduce)**
+
+Extract 2-4 keywords from the bug summary and search commit history:
+
+```bash
+# Example bug: "500 on POST /auth/login when MFA is enabled"
+# Keywords: "auth", "login", "MFA", "500"
+
+mcp__gitnexus__git_log({
+  search: "auth login",
+  since: "2024-04-25",  # 30 days before current date
+  limit: 20
+})
+```
+
+**What to look for:**
+- Commits mentioning the same feature area in the last 30 days
+- Patterns of repeated fixes (e.g., 3 commits with "fix auth" in 2 weeks = fragile code)
+- Recent refactors or dependency updates that may have introduced the bug
+- Commits that touched the same files identified by `gitnexus_query`
+
+**When a potential regression-causing commit is found:**
+1. Note the commit hash and author in your investigation notes
+2. Use `git show <hash>` via Bash to see the full diff
+3. Cross-reference with `gitnexus_context` to see if symbols changed in that commit are related
+4. Flag in the root-cause analysis: "Likely introduced by <hash> — <subject>"
+
+**Stage: Prepare edit (before writing the fix)**
+
+After `gitnexus_context` identifies the target symbol and file, check recent changes to that specific file:
+
+```bash
+# Target file identified: src/auth/mfa_handler.py
+
+mcp__gitnexus__git_log({
+  search: "mfa_handler.py",
+  since: "2023-11-25",  # 6 months before current date
+  limit: 5
+})
+```
+
+**What to look for:**
+- Who last touched this code (potential domain expert to consult)
+- How many times this file was changed recently (stability indicator)
+- Whether there was a recent fix attempt that introduced this bug
+- Commit messages explaining non-obvious design decisions
+
+**When to report findings:**
+- If the same file/function was patched ≥ 3 times in the last 3 months → flag as "fragile code, consider refactor after fix"
+- If a commit in the last 30 days touched the exact symbol → include in root-cause: "Recent change by <author> in <hash> may have introduced this"
+- If no commits in 6+ months → flag as "stable code, regression likely from dependency or integration change"
+
 ### Fallback rule
 
 If a **GitNexus MCP tool** is unavailable (server transiently down, not config missing):
 - continue in degraded mode using `Read` / `Grep` / `Glob`
+- for `git_log`, fall back to `git log --oneline --grep="<keyword>" --since="30 days ago" -n 20`
 - state explicitly that GitNexus is unavailable
 
 If a **Superpowers skill or security-review** is unavailable:
@@ -155,9 +221,10 @@ If a **Superpowers skill or security-review** is unavailable:
 |---|---|---|
 | Orient | `gitnexus_list_repos()` | non-empty index confirmed |
 | Assemble context | `gitnexus_query({query: "<bug area>"})` | candidate symbols |
+| Historical context | `gitnexus_git_log({search: "<bug keywords>", since: "<30d ago>"})` | recent commits identified; potential regression-causing commits flagged |
 | Reproduce | `Skill("superpowers-systematic-debugging")` | exact bug reproduction or smallest failing case |
 | Localise | `gitnexus_query`, `gitnexus_context` (incoming + outgoing refs), `gitnexus_impact(upstream)` | root-cause candidate with evidence |
-| Prepare edit | `gitnexus_context({name: "<target symbol>"})` | callers, deps, process participation |
+| Prepare edit | `gitnexus_context({name: "<target symbol>"})` + `gitnexus_git_log({search: "<target file>"})` | callers, deps, process participation + recent change history |
 | Lock regression | `Skill("superpowers-test-driven-development")` | failing regression test + `suite_before_fix` captured in `.morpheus-qa.json` |
 | Fix | narrow code change only | test now passes locally; `tests_modified` updated in `.morpheus-qa.json` |
 | **Security scan** | `Skill("security-review")` **MANDATORY** | PASS (zero CRITICAL/HIGH findings); results in `.security-review-findings.json` |
@@ -233,6 +300,14 @@ gh pr create \
   --body "$(cat <<'EOF'
 ## Bug
 <!-- issue-id and one-line summary -->
+
+## Historical context
+<!-- Recent commits related to this area; potential regression-causing commit if identified -->
+- **Recent activity:** <N> commits in last 30 days touching this area
+- **Potential regression:** <commit hash> by <author> on <date> — "<subject>"
+  - **Relevance:** <how this commit may have introduced the bug>
+- **File stability:** <target file> has <N> changes in last 90 days — <stable/moderate/high churn>
+- **Patterns:** <any repeated fix attempts or fragility indicators>
 
 ## Root cause
 <!-- what was broken and why -->
@@ -314,6 +389,11 @@ If the human chose **Manual PR**, print this block and wait — do not proceed f
 │  ## Bug                                                     │
 │  <issue-id>: <summary>                                      │
 │                                                             │
+│  ## Historical context                                      │
+│  - Recent activity: <N> commits in last 30 days            │
+│  - Potential regression: <hash> by <author> — "<subject>"  │
+│  - File stability: <N> changes in 90 days — <assessment>   │
+│                                                             │
 │  ## Root cause                                              │
 │  <what was broken>                                          │
 │                                                             │
@@ -349,11 +429,12 @@ Once the human pastes the PR URL, record it in `.morpheus-telemetry.json` under 
 flowchart TD
     A[/morpheus-worker ARGUMENTS/] --> B[gitnexus_list_repos]
     B --> C[gitnexus_query — orient]
-    C --> D[gitnexus_context — assemble context]
+    C --> C2[gitnexus_git_log — historical context]
+    C2 --> D[gitnexus_context — assemble context]
     D --> E[superpowers-systematic-debugging]
     E --> F[gitnexus_query + gitnexus_context incoming + outgoing refs]
     F --> G[gitnexus_impact upstream — localise dependents]
-    G --> H[gitnexus_context on target symbol — prepare edit]
+    G --> H[gitnexus_context + gitnexus_git_log on target — prepare edit]
     H --> I[superpowers-test-driven-development]
     I --> J[Narrow code fix]
     J --> K[security-review MANDATORY]
@@ -427,7 +508,7 @@ jq --arg stage "$STAGE_NAME" \
    && mv .morpheus-telemetry.tmp.json .morpheus-telemetry.json
 ```
 
-Apply this pattern to every stage: **Orient, Assemble context, Reproduce, Localise, Prepare edit, Lock regression, Fix, Diagnose change, Verify impact, API check, Contract check, Verify, Review**.
+Apply this pattern to every stage: **Orient, Assemble context, Historical context, Reproduce, Localise, Prepare edit, Lock regression, Fix, Diagnose change, Verify impact, API check, Contract check, Verify, Review**.
 
 ### Token tracking
 
@@ -512,6 +593,8 @@ fi
 | `stage.cache_write` | cache-write tokens for this stage |
 | `fix.result` | `fixed`, `failed`, `blocked`, `skipped` |
 | `git.branch` | current branch |
+| `git.commits_analyzed` | commit count from `git_log` historical context |
+| `git.regression_commit_found` | `true` if potential regression commit identified |
 | `gitnexus.repos_indexed` | repo count from `gitnexus_list_repos` |
 
 If `otel-cli` is not installed, skip span creation silently.
@@ -563,6 +646,7 @@ Then print this block with the **actual extracted values** substituted in:
 ╠═══════════════════════╬══════════════╬═══════════════════════════════════╣
 ║ Orient                ║  <actual>    ║   <actual> / <actual> / <actual>  ║
 ║ Assemble context      ║  <actual>    ║   <actual> / <actual> / <actual>  ║
+║ Historical context    ║  <actual>    ║   <actual> / <actual> / <actual>  ║
 ║ Reproduce             ║  <actual>    ║   <actual> / <actual> / <actual>  ║
 ║ Localise              ║  <actual>    ║   <actual> / <actual> / <actual>  ║
 ║ Prepare edit          ║  <actual>    ║   <actual> / <actual> / <actual>  ║
@@ -600,6 +684,7 @@ Then print this block with the **actual extracted values** substituted in:
 ╠═══════════════════════╬══════════════╬═══════════════════════════════════╣
 ║ Orient                ║  1,234 ms    ║   2,100 /   340 /  1,500          ║
 ║ Assemble context      ║  2,890 ms    ║   5,400 /   620 /  4,200          ║
+║ Historical context    ║  1,560 ms    ║   1,800 /   280 /  1,400          ║
 ║ Reproduce             ║ 45,210 ms    ║  18,200 / 3,400 / 12,100          ║
 ║ Localise              ║  8,320 ms    ║   7,800 / 1,200 /  6,400          ║
 ║ Prepare edit          ║  3,100 ms    ║   4,200 /   580 /  3,800          ║
@@ -612,8 +697,8 @@ Then print this block with the **actual extracted values** substituted in:
 ║ Verify                ║ 28,340 ms    ║  12,400 / 2,100 /  9,800          ║
 ║ Review                ║ 19,670 ms    ║   9,600 / 1,800 /  7,200          ║
 ╠═══════════════════════╬══════════════╬═══════════════════════════════════╣
-║ TOTAL                 ║ 124,754 ms   ║  79,400 / 14,880 / 57,400         ║
-║                       ║  (2m 4s)     ║  Combined total: 151,680 tokens   ║
+║ TOTAL                 ║ 126,314 ms   ║  81,200 / 15,160 / 58,800         ║
+║                       ║  (2m 6s)     ║  Combined total: 155,160 tokens   ║
 ╚════════════════════════════════════════════════════════════════════════════╝
 ```
 
@@ -627,8 +712,9 @@ Initialise `.morpheus-qa.json` at session start:
 
 ```json
 {
-  "schema_version": "2",
+  "schema_version": "3",
   "bug_id": "<issue-id>",
+  "historical_context": null,
   "regression_test": null,
   "tests_added": [],
   "tests_modified": [],
@@ -645,6 +731,43 @@ Initialise `.morpheus-qa.json` at session start:
 ```
 
 ### Recording at each QA stage
+
+#### At "Historical context" (after git_log analysis)
+
+After running `gitnexus_git_log`, capture key findings:
+
+```bash
+jq '.historical_context = {
+      "recent_commits_count": 8,
+      "potential_regression_commit": {
+        "hash": "a3f2c1b",
+        "author": "jane.doe@example.com",
+        "date": "2024-05-18",
+        "subject": "refactor: update MFA validation logic",
+        "relevance": "touched same auth/mfa area"
+      },
+      "file_stability": {
+        "target_file": "src/auth/mfa_handler.py",
+        "changes_last_90d": 5,
+        "assessment": "moderate churn — fragile area"
+      },
+      "patterns": [
+        "3 commits with \"fix auth\" in last 30 days — indicates instability"
+      ]
+    }' .morpheus-qa.json > .morpheus-qa.tmp.json && mv .morpheus-qa.tmp.json .morpheus-qa.json
+```
+
+If no relevant commits found or git_log returned empty results, record:
+
+```bash
+jq '.historical_context = {
+      "recent_commits_count": 0,
+      "potential_regression_commit": null,
+      "file_stability": null,
+      "patterns": [],
+      "note": "No relevant commits in last 30 days — stable area or new feature"
+    }' .morpheus-qa.json > .morpheus-qa.tmp.json && mv .morpheus-qa.tmp.json .morpheus-qa.json
+```
 
 #### At "Lock regression" (`superpowers-test-driven-development`)
 
@@ -835,22 +958,24 @@ JT-SCI(T) = α(Lq/3) + β(Re/3) + γSc − λPs
 
 | Dimension | Score | Criteria |
 |---|---|---|
-| **Lq** — Localization Quality (0–3) | 3 | Used `gitnexus_context` on exact symbol; fix landed in that symbol |
+| **Lq** — Localization Quality (0–3) | 3 | Used `gitnexus_context` on exact symbol; fix landed in that symbol; historical context reviewed |
 | | 2 | Used `gitnexus_query`; fix landed in the identified area |
 | | 1 | Used file-level search or manual navigation |
 | | 0 | Fix was speculative; root cause not confirmed before patching |
-| **Re** — Reproduction Readiness (0–3) | 3 | Failing regression test written + manual repro confirmed |
+| **Re** — Reproduction Readiness (0–3) | 3 | Failing regression test written + manual repro confirmed + potential regression commit identified |
 | | 2 | Failing regression test written only |
 | | 1 | Manual repro steps only, no automated test |
 | | 0 | No reproduction established before fixing |
-| **Sc** — Structural Completeness (0.0–1.0) | +0.25 | Root cause clearly identified and documented |
-| | +0.25 | Regression test added and in `tests_added` |
-| | +0.25 | Post-fix GitNexus diagnostics all run |
-| | +0.25 | `superpowers-verification-before-completion` passed |
+| **Sc** — Structural Completeness (0.0–1.0) | +0.20 | Root cause clearly identified and documented |
+| | +0.20 | Regression test added and in `tests_added` |
+| | +0.20 | Historical context analyzed via `git_log` |
+| | +0.20 | Post-fix GitNexus diagnostics all run |
+| | +0.20 | `superpowers-verification-before-completion` passed |
 | **Ps** — Semantic Penalty (0.0–1.0) | +0.30 | Fix scope is unclear or touches unrelated code |
 | | +0.30 | Root cause description is vague or missing |
 | | +0.20 | Test coverage gaps exist in the changed area |
 | | +0.20 | No clear evidence chain from symptom to root cause |
+| | +0.10 | Historical context skipped (git_log not invoked) |
 
 Compute and write to `.morpheus-qa.json`:
 
@@ -1025,10 +1150,13 @@ User: /morpheus-fix-bug-using-gitnexus "500 on POST /auth/login when MFA is enab
 Assistant:
 - Call gitnexus_list_repos to verify index
 - Call gitnexus_query with "auth login MFA 500"
+- **Call gitnexus_git_log with search: "auth login MFA", since: 30 days ago**
+- **Analyze commit history: flag potential regression-causing commits**
 - Call gitnexus_context on the top candidate symbol
 - Invoke superpowers-systematic-debugging
 - Reproduce failure locally
 - Call gitnexus_context on target files/symbols
+- **Call gitnexus_git_log on target file (last 6 months) to understand recent changes**
 - Invoke superpowers-test-driven-development
 - Add failing regression test
 - Fix the smallest set of symbols needed

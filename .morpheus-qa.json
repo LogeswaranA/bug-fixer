@@ -1,0 +1,17 @@
+{
+  "schema_version": "3",
+  "bug_id": "test-bug",
+  "historical_context": null,
+  "regression_test": null,
+  "tests_added": [],
+  "tests_modified": [],
+  "suite_before_fix": null,
+  "suite_after_fix": null,
+  "coverage": null,
+  "security_scan": null,
+  "ui_qa": null,
+  "security_qa": null,
+  "qa_test_cases": [],
+  "qa_score": null,
+  "jtsci": null
+}
