@@ -22,8 +22,14 @@ The workflow is split into four focused skills plus a reference document:
 
 Clone this repo into a machine that has Claude Code, then run:
 
+**Linux / macOS / WSL:**
 ```bash
 ./setup.sh
+```
+
+**Windows (PowerShell):**
+```powershell
+.\setup.ps1
 ```
 
 The script installs GitNexus, indexes the repo, and copies all four skills. It will tell you if Superpowers or GStack still need to be installed manually inside Claude Code.
@@ -274,7 +280,8 @@ main (or master / default branch)
 .
 ├── README.md                          ← this file
 ├── MORPHEUS-FLOWCHART-ONLY.md        ← visual decision flowcharts (Mermaid)
-├── setup.sh                          ← quick setup script
+├── setup.sh                          ← quick setup script (Linux/macOS/WSL)
+├── setup.ps1                         ← quick setup script (Windows PowerShell)
 └── .claude/
     ├── hooks/
     │   └── morpheus-stop-gate.py     ← Stop hook gate script

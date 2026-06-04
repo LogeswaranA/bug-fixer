@@ -81,10 +81,28 @@ GSTACK_MARKER="${HOME}/.claude/skills/gstack"
 if [ -d "$GSTACK_MARKER" ]; then
   ok "GStack already installed"
 else
-  err "GStack not found"
-  echo "  Obtain GStack from your team or the GStack distribution and place it at:"
-  echo "  ${HOME}/.claude/skills/gstack/"
-  MISSING_GSTACK=true
+  warn "GStack not found — attempting to install..."
+  if command -v git &>/dev/null; then
+    if git clone --single-branch --depth 1 https://github.com/garrytan/gstack.git "${GSTACK_MARKER}" 2>/dev/null; then
+      if [ -x "${GSTACK_MARKER}/setup" ]; then
+        (cd "${GSTACK_MARKER}" && ./setup)
+        ok "GStack installed successfully"
+      else
+        ok "GStack cloned (setup script not found or not executable)"
+      fi
+    else
+      err "Failed to clone GStack repository"
+      echo "  You can manually install it with:"
+      echo "  git clone --single-branch --depth 1 https://github.com/garrytan/gstack.git ~/.claude/skills/gstack"
+      echo "  cd ~/.claude/skills/gstack && ./setup"
+      MISSING_GSTACK=true
+    fi
+  else
+    err "git not found — cannot auto-install GStack"
+    echo "  Install git first, or manually clone GStack to:"
+    echo "  ${HOME}/.claude/skills/gstack/"
+    MISSING_GSTACK=true
+  fi
 fi
 
 # ── 4. Install skills ──────────────────────────────────────────────────────
